@@ -44,6 +44,7 @@ const env = {
   SUPABASE_SERVICE_ROLE_KEY: "fake_server_only",
   SUPABASE_ANON_KEY: "test_public",
   WAHA_BASE_URL: "https://waha.example",
+  WAHA_PUBLIC_URL: "https://waha-public.example",
   WAHA_API_KEY: "test_waha",
   BAHIANO_WEBHOOK_TOKEN: "private_token",
 };
@@ -241,7 +242,7 @@ r = await req(
   event("msg-3", "Segue comprovante Pix", {
     hasMedia: true,
     media: {
-      url: "https://waha.example/api/files/proof",
+      url: "https://waha-public.example/api/files/proof",
       mimetype: "image/jpeg",
     },
   }),
@@ -353,6 +354,31 @@ r = await req(
   hookHeaders,
 );
 assert.equal(tables.documents.length, filesCount);
+await req(
+  "webhook/waha",
+  event("media-credentials", "CNH frente", {
+    hasMedia: true,
+    media: {
+      url: "https://username:password@waha-public.example/api/files/image",
+      mimetype: "image/jpeg",
+    },
+  }),
+  hookHeaders,
+);
+assert.equal(tables.documents.length, filesCount);
+// Rewriting an approved public URL must keep the private host even for a // path.
+await req(
+  "webhook/waha",
+  event("media-double-slash", "CNH frente", {
+    hasMedia: true,
+    media: {
+      url: "https://waha-public.example//evil.example/api/files/image",
+      mimetype: "image/jpeg",
+    },
+  }),
+  hookHeaders,
+);
+assert.equal(tables.documents.length, filesCount + 1);
 // Pause and edit routes use the authenticated administrative boundary.
 r = await req(
   "admin/pause",
@@ -521,19 +547,37 @@ whatsappState = "WORKING";
 r = await (await whatsappRequest("connect")).json();
 assert.equal(r.connected, true);
 assert.equal(sessionActions.length, 0);
+whatsappState = "SCAN_QR_CODE";
+r = await (await whatsappRequest("connect")).json();
+assert.equal(r.status, "SCAN_QR_CODE");
+assert.equal(sessionActions.length, 0);
+whatsappState = "STARTING";
+r = await (await whatsappRequest("connect")).json();
+assert.equal(r.status, "STARTING");
+assert.equal(sessionActions.length, 0);
+whatsappState = "PASSKEY_CONFIRMATION_REQUIRED";
+r = await (await whatsappRequest("connect")).json();
+assert.equal(r.status, "PASSKEY_CONFIRMATION_REQUIRED");
+assert.equal(sessionActions.length, 0);
+whatsappState = "WORKING";
 r = await (await whatsappRequest("disconnect")).json();
 assert.equal(r.connected, false);
 assert.equal(r.status, "STOPPED");
 assert.deepEqual(sessionActions, ["logout", "stop"]);
 sessionActions.length = 0;
+whatsappState = "STOPPED";
+r = await (await whatsappRequest("connect")).json();
+assert.equal(r.status, "STARTING");
+assert.deepEqual(sessionActions, ["start"]);
+sessionActions.length = 0;
 whatsappState = "FAILED";
 r = await (await whatsappRequest("connect")).json();
 assert.equal(r.status, "STARTING");
-assert.deepEqual(sessionActions, ["logout", "restart"]);
+assert.deepEqual(sessionActions, ["restart"]);
 sessionActions.length = 0;
 failLogout = true;
 assert.equal((await whatsappRequest("disconnect")).status, 503);
 assert.deepEqual(sessionActions, ["logout"]);
 console.log(
-  "PASS: protected WhatsApp pairing, method restrictions, working-session preservation, logout then stop, failure recovery and logout failure.",
+  "PASS: protected WhatsApp pairing, method restrictions, no reset of QR/starting/working sessions, manual phone confirmation preserved, start stopped session, single restart after failure, logout then stop and logout failure.",
 );

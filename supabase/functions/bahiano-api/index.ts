@@ -10,6 +10,7 @@ const url = E.get("SUPABASE_URL") || "";
 const dbKey = E.get("SUPABASE_SERVICE_ROLE_KEY") || "";
 const publicKey = E.get("SUPABASE_ANON_KEY") || "";
 const wahaUrl = (E.get("WAHA_BASE_URL") || "").replace(/\/$/, "");
+const wahaPublicUrl = (E.get("WAHA_PUBLIC_URL") || wahaUrl).replace(/\/$/, "");
 const wahaKey = E.get("WAHA_API_KEY") || "";
 const hookKey = E.get("BAHIANO_WEBHOOK_TOKEN") || E.get("WEBHOOK_TOKEN") || "";
 const adminEmail = "bahiano.reida99uber@gmail.com";
@@ -100,6 +101,7 @@ async function checkAdmin(req: Request) {
   if (!token || !url || !publicKey) return false;
   const r = await fetch(url + "/auth/v1/user", {
     headers: { apikey: publicKey, Authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(5000),
   });
   if (!r.ok) return false;
   const u = await r.json();
@@ -243,7 +245,19 @@ async function mediaUpload(p: any, lead: any, msg: any, kind: string) {
   } catch {
     return false;
   }
-  if (source.origin !== new URL(wahaUrl).origin) return false;
+  if (
+    source.username ||
+    source.password ||
+    ![new URL(wahaUrl).origin, new URL(wahaPublicUrl).origin].includes(
+      source.origin,
+    )
+  )
+    return false;
+  // Approved public media URLs are fetched over Railway's private network.
+  const privateSource = new URL(wahaUrl);
+  privateSource.pathname = source.pathname;
+  privateSource.search = source.search;
+  source = privateSource;
   const r = await fetch(source.toString(), {
     headers: { "X-Api-Key": wahaKey },
     redirect: "error",
@@ -849,7 +863,7 @@ async function whatsapp(req: Request, path: string) {
         Accept: "application/json",
       },
       body: body === undefined ? undefined : JSON.stringify(body),
-      signal: AbortSignal.timeout(20000),
+      signal: AbortSignal.timeout(6000),
     });
   if (connect || disconnect) {
     const current = await call("/api/sessions/default");
@@ -873,12 +887,32 @@ async function whatsapp(req: Request, path: string) {
     }
     if (!current.ok) throw Error("Falha ao consultar sessão");
     const session = await current.json();
-    if (connect && session.status === "WORKING")
-      return response({ name: "default", status: "WORKING", connected: true });
-    const loggedOut = await call("/api/sessions/default/logout", "POST");
-    if (!loggedOut.ok) throw Error("Falha ao desconectar aparelho");
+    if (
+      connect &&
+      [
+        "WORKING",
+        "SCAN_QR_CODE",
+        "STARTING",
+        "PASSKEY_REQUIRED",
+        "PASSKEY_CONFIRMATION_REQUIRED",
+      ].includes(session.status)
+    )
+      return response({
+        name: "default",
+        status: session.status,
+        connected: session.status === "WORKING",
+      });
+    if (disconnect) {
+      const loggedOut = await call("/api/sessions/default/logout", "POST");
+      if (!loggedOut.ok) throw Error("Falha ao desconectar aparelho");
+    }
     const changed = await call(
-      "/api/sessions/default/" + (disconnect ? "stop" : "restart"),
+      "/api/sessions/default/" +
+        (disconnect
+          ? "stop"
+          : session.status === "STOPPED"
+            ? "start"
+            : "restart"),
       "POST",
     );
     if (!changed.ok) throw Error("Falha ao alterar conexão");
@@ -901,7 +935,7 @@ async function whatsapp(req: Request, path: string) {
         "X-Api-Key": wahaKey,
         Accept: qr ? "image/png" : "application/json",
       },
-      signal: AbortSignal.timeout(15000),
+      signal: AbortSignal.timeout(5000),
     },
   );
   if (!remote.ok)
