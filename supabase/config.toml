@@ -1,0 +1,4 @@
+[functions.bahiano-api]
+verify_jwt = false
+# Endpoints /admin/* verify the signed Supabase user JWT themselves.
+# Endpoint /webhook/waha verifies BAHIANO_WEBHOOK_TOKEN.

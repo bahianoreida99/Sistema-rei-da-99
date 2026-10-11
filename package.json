@@ -1,0 +1,34 @@
+{
+  "name": "bahiano-rei-da-99",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "test": "node tests/edge-smoke.mjs && node tests/finance.mjs",
+    "lint": "eslint app lib scripts backend/server.mjs",
+    "build:api": "node scripts/build-api.mjs",
+    "start:api": "node backend/server.mjs",
+    "typecheck:api": "tsc -p tsconfig.api.json"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.57.0",
+    "fflate": "^0.8.2",
+    "lucide-react": "^0.468.0",
+    "next": "16.4.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^22",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^10.12.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "typescript": "^5.9.0",
+    "typescript-eslint": "^8.71.1"
+  }
+}
