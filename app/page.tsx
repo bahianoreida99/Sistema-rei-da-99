@@ -101,7 +101,8 @@ export default function Home() {
     const [l, d, c, settings] = await Promise.all([
       supabase
         .from("leads")
-        .select("*")
+        .select("*, contacts!inner(classification)")
+        .neq("contacts.classification", "personal")
         .order("created_at", { ascending: false }),
       supabase
         .from("documents")
@@ -147,9 +148,10 @@ export default function Home() {
       .from("messages")
       .select("*")
       .eq("lead_id", id)
-      .order("received_at", { ascending: true })
+      .order("received_at", { ascending: false })
       .limit(300);
-    if (!r.error && selectedRef.current === id) setMessages(r.data || []);
+    if (!r.error && selectedRef.current === id)
+      setMessages([...(r.data || [])].reverse());
   }, []);
   useEffect(() => {
     let mounted = true;
@@ -245,13 +247,11 @@ export default function Home() {
     }
     setBusy("costs");
     try {
-      const { error } = await supabase
-        .from("business_settings")
-        .upsert({
-          key: "campaign_costs",
-          value: { total_cents: cost },
-          updated_at: new Date().toISOString(),
-        });
+      const { error } = await supabase.from("business_settings").upsert({
+        key: "campaign_costs",
+        value: { total_cents: cost },
+        updated_at: new Date().toISOString(),
+      });
       if (error) throw error;
       await refresh();
       setNotice("Custos acumulados atualizados.");
@@ -1415,6 +1415,11 @@ export default function Home() {
                       Serviço
                       <select
                         value={active.service}
+                        disabled={
+                          !["leads", "leads_campaign", "conversando"].includes(
+                            active.stage,
+                          )
+                        }
                         onChange={(e) =>
                           void perform("details", active, {
                             service: e.target.value,
