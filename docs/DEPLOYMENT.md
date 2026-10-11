@@ -39,7 +39,7 @@ WHATSAPP_HOOK_RETRIES_ATTEMPTS=3
 
 Configure o segredo diretamente na Railway. Confira também os webhooks da sessão, que podem prevalecer sobre as variáveis globais. Mantenha `business_settings.bot.enabled=false` até confirmar o telefone do Bahiano e homologar o fluxo sem clientes reais.
 
-No Dashboard do painel, consulte a conexão e atualize o QR por rotas autenticadas. No celular do Bahiano: WhatsApp → Aparelhos conectados → Conectar aparelho. Reiniciar a sessão não apaga o volume. Na inspeção foi observado WEBJS 2026.9.2 e `Cmd.refreshQR is not a function`; restart recuperou SCAN_QR_CODE. Mudanças de engine exigem validar os eventos e mídias.
+No Dashboard, o estado da conexão é consultado automaticamente. O único botão alterna entre Conectar e Desconectar; a indicação verde aparece apenas quando a sessão está WORKING. Conectar prepara um novo vínculo quando a sessão não está ativa; Desconectar efetua logout e para a sessão. O QR é exibido em uma janela de 60 segundos, com contagem regressiva e atualização automática para acompanhar a rotação do WhatsApp. Após expirar, clique em Conectar novamente. No celular do Bahiano: WhatsApp → Aparelhos conectados → Conectar aparelho. Reiniciar a sessão não apaga o volume. Na inspeção foi observado WEBJS 2026.9.2 e `Cmd.refreshQR is not a function`; restart recuperou SCAN_QR_CODE. Mudanças de engine exigem validar os eventos e mídias.
 
 Referências: [sessões e QR](https://waha.devlike.pro/docs/how-to/sessions/), [eventos](https://waha.devlike.pro/docs/how-to/events/), [engines](https://waha.devlike.pro/docs/how-to/engines/).
 
@@ -60,3 +60,4 @@ Se usar somente Supabase Edge, agende a chamada autenticada de `/internal/retry`
 A retenção proposta de 90 dias exige revisão do proprietário e mantém exclusão automática desativada. Nenhum documento existente é apagado pelo deploy. Defina prazo, finalidade e descarte antes do uso real; inclua contatos, mensagens e payloads da fila na política.
 
 Faça backup do PostgreSQL, Storage privado e volume WAHA antes de alterações. Proteja o volume como credencial de WhatsApp; nunca publique backups no Git. Para rollback de código, use deployment/commit conhecido. Não reverta migrations apagando tabelas com dados. Durante incidentes, pause a automação e preserve os registros.
+

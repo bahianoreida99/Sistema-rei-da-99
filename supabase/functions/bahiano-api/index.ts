@@ -828,10 +828,66 @@ async function whatsapp(req: Request, path: string) {
     return response({ error: "WAHA não configurado" }, 503);
   const qr = path === "/admin/whatsapp/qr";
   const restart = path === "/admin/whatsapp/restart";
-  if (!qr && !restart && path !== "/admin/whatsapp/session")
+  const connect = path === "/admin/whatsapp/connect";
+  const disconnect = path === "/admin/whatsapp/disconnect";
+  if (
+    !qr &&
+    !restart &&
+    !connect &&
+    !disconnect &&
+    path !== "/admin/whatsapp/session"
+  )
     return response({ error: "Rota não encontrada" }, 404);
-  if (restart && req.method !== "POST")
+  if (req.method !== (restart || connect || disconnect ? "POST" : "GET"))
     return response({ error: "Método inválido" }, 405);
+  const call = (suffix: string, method = "GET", body?: unknown) =>
+    fetch(wahaUrl + suffix, {
+      method,
+      headers: {
+        "X-Api-Key": wahaKey,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal: AbortSignal.timeout(20000),
+    });
+  if (connect || disconnect) {
+    const current = await call("/api/sessions/default");
+    if (current.status === 404) {
+      if (disconnect)
+        return response({
+          name: "default",
+          status: "STOPPED",
+          connected: false,
+        });
+      const created = await call("/api/sessions", "POST", {
+        name: "default",
+        start: true,
+      });
+      if (!created.ok) throw Error("Falha ao criar sessão");
+      return response({
+        name: "default",
+        status: "STARTING",
+        connected: false,
+      });
+    }
+    if (!current.ok) throw Error("Falha ao consultar sessão");
+    const session = await current.json();
+    if (connect && session.status === "WORKING")
+      return response({ name: "default", status: "WORKING", connected: true });
+    const loggedOut = await call("/api/sessions/default/logout", "POST");
+    if (!loggedOut.ok) throw Error("Falha ao desconectar aparelho");
+    const changed = await call(
+      "/api/sessions/default/" + (disconnect ? "stop" : "restart"),
+      "POST",
+    );
+    if (!changed.ok) throw Error("Falha ao alterar conexão");
+    return response({
+      name: "default",
+      status: disconnect ? "STOPPED" : "STARTING",
+      connected: false,
+    });
+  }
   const remote = await fetch(
     wahaUrl +
       (qr

@@ -36,6 +36,9 @@ let i = 0;
 const outbound = [];
 let handler;
 let failSend = false;
+let whatsappState = "SCAN_QR_CODE";
+let failLogout = false;
+const sessionActions = [];
 const env = {
   SUPABASE_URL: "https://example.supabase.co",
   SUPABASE_SERVICE_ROLE_KEY: "fake_server_only",
@@ -63,6 +66,15 @@ function select(table, u) {
 async function fetchMock(input, init = {}) {
   const u = new URL(input);
   if (u.hostname === "waha.example") {
+    if (u.pathname === "/api/sessions/default")
+      return fakeJson({ name: "default", status: whatsappState });
+    if (u.pathname.startsWith("/api/sessions/default/")) {
+      const action = u.pathname.split("/").at(-1);
+      sessionActions.push(action);
+      if (action === "logout" && failLogout) return fakeJson({}, 503);
+      whatsappState = action === "stop" ? "STOPPED" : "STARTING";
+      return fakeJson({ name: "default", status: whatsappState });
+    }
     if (u.pathname === "/api/sendText") {
       if (failSend) return fakeJson({ error: "unavailable" }, 503);
       const msg = JSON.parse(init.body);
@@ -493,4 +505,35 @@ assert.equal(r.ok, true);
 assert.equal(tables.leads.length, count);
 console.log(
   "PASS: persistent failed webhook recovery, incoming deduplication after retry, outgoing phone message, session failure event.",
+);
+// Pairing commands must be authenticated, preserve working sessions and fully log out on disconnect.
+const whatsappRequest = (action, method = "POST", authorized = true) =>
+  handler(
+    new Request("https://edge.example/admin/whatsapp/" + action, {
+      method,
+      headers: authorized ? { authorization: "Bearer good" } : {},
+    }),
+  );
+assert.equal((await whatsappRequest("disconnect", "POST", false)).status, 401);
+assert.equal(sessionActions.length, 0);
+assert.equal((await whatsappRequest("connect", "GET")).status, 405);
+whatsappState = "WORKING";
+r = await (await whatsappRequest("connect")).json();
+assert.equal(r.connected, true);
+assert.equal(sessionActions.length, 0);
+r = await (await whatsappRequest("disconnect")).json();
+assert.equal(r.connected, false);
+assert.equal(r.status, "STOPPED");
+assert.deepEqual(sessionActions, ["logout", "stop"]);
+sessionActions.length = 0;
+whatsappState = "FAILED";
+r = await (await whatsappRequest("connect")).json();
+assert.equal(r.status, "STARTING");
+assert.deepEqual(sessionActions, ["logout", "restart"]);
+sessionActions.length = 0;
+failLogout = true;
+assert.equal((await whatsappRequest("disconnect")).status, 503);
+assert.deepEqual(sessionActions, ["logout"]);
+console.log(
+  "PASS: protected WhatsApp pairing, method restrictions, working-session preservation, logout then stop, failure recovery and logout failure.",
 );

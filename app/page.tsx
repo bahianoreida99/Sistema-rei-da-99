@@ -34,6 +34,8 @@ import {
 } from "@/lib/supabase";
 import { finance, type DocumentSplit } from "@/lib/finance";
 import { zipSync } from "fflate";
+import WhatsappPanel from "./whatsapp-panel";
+import ServicePerformance from "./service-performance";
 
 type Section = "dashboard" | "kanban";
 const docLabels: Record<string, string> = {
@@ -64,14 +66,6 @@ export default function Home() {
     [authed, setAuthed] = useState(false);
   const [section, setSection] = useState<Section>("dashboard"),
     [leads, setLeads] = useState<Lead[]>([]),
-    [contacts, setContacts] = useState<
-      {
-        id: string;
-        display_name: string | null;
-        phone: string | null;
-        classification: string;
-      }[]
-    >([]),
     [documents, setDocuments] = useState<Doc[]>([]),
     [messages, setMessages] = useState<Msg[]>([]),
     [selected, setSelected] = useState<string | null>(null),
@@ -80,25 +74,16 @@ export default function Home() {
     [draft, setDraft] = useState(""),
     [busy, setBusy] = useState(""),
     [notice, setNotice] = useState("");
-  const [whatsappStatus, setWhatsappStatus] = useState("Não consultado"),
-    [qrUrl, setQrUrl] = useState("");
-  useEffect(
-    () => () => {
-      if (qrUrl) URL.revokeObjectURL(qrUrl);
-    },
-    [qrUrl],
-  );
   const [documentSplit, setDocumentSplit] = useState<DocumentSplit>({
     bahiano_cents: null,
     campaign_cents: null,
   });
-  const [campaignCosts, setCampaignCosts] = useState<number | null>(null);
   const selectedRef = useRef<string | null>(null);
   selectedRef.current = selected;
   const active = leads.find((l) => l.id === selected) || null;
   const refresh = useCallback(async () => {
     if (!supabase) return;
-    const [l, d, c, settings] = await Promise.all([
+    const [l, d, settings] = await Promise.all([
       supabase
         .from("leads")
         .select("*, contacts!inner(classification)")
@@ -109,36 +94,15 @@ export default function Home() {
         .select("*")
         .order("received_at", { ascending: false }),
       supabase
-        .from("contacts")
-        .select("id,display_name,phone,classification")
-        .order("last_message_at", { ascending: false })
-        .limit(100),
-      supabase
         .from("business_settings")
         .select("key,value")
-        .in("key", ["commission_documento", "campaign_costs"]),
+        .eq("key", "commission_documento"),
     ]);
     if (l.error) setNotice(l.error.message);
-    else
-      setLeads(
-        (l.data || []).filter(
-          (lead) =>
-            !c.data?.some(
-              (contact) =>
-                contact.id === lead.contact_id &&
-                contact.classification === "personal",
-            ),
-        ),
-      );
-    if (!c.error) setContacts(c.data || []);
+    else setLeads(l.data || []);
     for (const setting of settings.data || []) {
       if (setting.key === "commission_documento")
         setDocumentSplit(setting.value);
-      if (
-        setting.key === "campaign_costs" &&
-        Number.isInteger(setting.value.total_cents)
-      )
-        setCampaignCosts(setting.value.total_cents);
     }
     if (!d.error) setDocuments(d.data || []);
   }, []);
@@ -235,34 +199,6 @@ export default function Home() {
   const campaignCommission = totals.campaign;
   const bahianoKnown = totals.bahiano;
   const docPending = totals.documentSplitPending;
-  const saveCampaignCosts = async (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (!supabase) return;
-    const cost = Math.round(
-      Number(new FormData(e.currentTarget).get("cost")) * 100,
-    );
-    if (!Number.isSafeInteger(cost) || cost < 0) {
-      setNotice("Informe um custo válido.");
-      return;
-    }
-    setBusy("costs");
-    try {
-      const { error } = await supabase.from("business_settings").upsert({
-        key: "campaign_costs",
-        value: { total_cents: cost },
-        updated_at: new Date().toISOString(),
-      });
-      if (error) throw error;
-      await refresh();
-      setNotice("Custos acumulados atualizados.");
-    } catch (error) {
-      setNotice(
-        error instanceof Error ? error.message : "Falha na configuração",
-      );
-    } finally {
-      setBusy("");
-    }
-  };
   const adminCall = async (
     action: string,
     l: Lead,
@@ -586,66 +522,6 @@ export default function Home() {
       setBusy("");
     }
   };
-  const checkWhatsapp = async (showQr = false, restart = false) => {
-    if (!supabase) return;
-    setBusy("whatsapp");
-    try {
-      const { data } = await supabase.auth.getSession();
-      const backend = process.env.NEXT_PUBLIC_API_URL;
-      if (!data.session || !backend) throw Error("Login ou API indisponível");
-      const headers = { authorization: "Bearer " + data.session.access_token };
-      const response = await fetch(
-        backend +
-          "/admin/whatsapp/" +
-          (restart ? "restart" : showQr ? "qr" : "session"),
-        { method: restart ? "POST" : "GET", headers },
-      );
-      if (!response.ok) {
-        const result = await response.json();
-        throw Error(result.error || "Falha no WhatsApp");
-      }
-      if (showQr) setQrUrl(URL.createObjectURL(await response.blob()));
-      else {
-        const result = await response.json();
-        setWhatsappStatus(result.status || "STARTING");
-        if (result.connected) setQrUrl("");
-      }
-    } catch (e) {
-      setNotice(e instanceof Error ? e.message : "Falha no WhatsApp");
-    } finally {
-      setBusy("");
-    }
-  };
-  const saveDocumentSplit = async (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (!supabase) return;
-    const form = new FormData(e.currentTarget);
-    const bahiano = Math.round(Number(form.get("bahiano")) * 100),
-      campaign = Math.round(Number(form.get("campaign")) * 100);
-    if (bahiano < 0 || campaign < 0 || bahiano + campaign !== 15000) {
-      setNotice("A divisão deve totalizar R$ 150,00.");
-      return;
-    }
-    setBusy("split");
-    try {
-      const { error } = await supabase.from("business_settings").upsert({
-        key: "commission_documento",
-        value: {
-          price_cents: 15000,
-          bahiano_cents: bahiano,
-          campaign_cents: campaign,
-        },
-        updated_at: new Date().toISOString(),
-      });
-      if (error) throw error;
-      await refresh();
-      setNotice("Divisão do serviço configurada.");
-    } catch (e) {
-      setNotice(e instanceof Error ? e.message : "Falha na configuração");
-    } finally {
-      setBusy("");
-    }
-  };
   const login = async (e: FormEvent) => {
     e.preventDefault();
     setLoginError("");
@@ -804,47 +680,7 @@ export default function Home() {
         )}
         {section === "dashboard" ? (
           <div className="dashboard">
-            <section className="panel whatsappPanel">
-              <h2>WhatsApp</h2>
-              <p>
-                Sessão: {whatsappStatus}. Conecte o aparelho do Bahiano; a
-                automação só será ativada após os testes.
-              </p>
-              <div className="connectionActions">
-                <button
-                  className="smallAction"
-                  disabled={busy === "whatsapp"}
-                  onClick={() => void checkWhatsapp()}
-                >
-                  Verificar conexão
-                </button>
-                <button
-                  className="smallAction"
-                  disabled={busy === "whatsapp"}
-                  onClick={() => void checkWhatsapp(true)}
-                >
-                  Atualizar QR Code
-                </button>
-                <button
-                  className="smallAction"
-                  disabled={busy === "whatsapp"}
-                  onClick={() => {
-                    if (confirm("Reiniciar a conexão do WhatsApp?"))
-                      void checkWhatsapp(false, true);
-                  }}
-                >
-                  Reconectar
-                </button>
-              </div>
-              {qrUrl && (
-                <img
-                  src={qrUrl}
-                  alt="QR Code para conectar o WhatsApp do Bahiano"
-                  width={276}
-                  height={276}
-                />
-              )}
-            </section>
+            <WhatsappPanel />
             <div className="metrics">
               <Metric
                 icon={<Wallet />}
@@ -873,7 +709,7 @@ export default function Home() {
                 value={currency(bahianoKnown)}
                 detail={
                   docPending
-                    ? "Documento do carro: repasse a configurar"
+                    ? "Valores de documentos não incluídos no repasse"
                     : `${paidUber.length} serviços Uber pagos`
                 }
               />
@@ -885,31 +721,17 @@ export default function Home() {
               />
               <Metric
                 icon={<BarChart3 />}
-                label="Lucro da campanha"
+                label="Taxa de conversão"
                 value={
-                  campaignCosts === null
-                    ? "Custos pendentes"
-                    : currency(campaignCommission - campaignCosts)
+                  (leads.length
+                    ? (paid.length / leads.length) * 100
+                    : 0
+                  ).toFixed(1) + "%"
                 }
-                detail="Comissão recebida menos custos acumulados informados"
+                detail="Pagos sobre total de atendimentos"
               />
             </div>
-            <Metric
-              icon={<Wallet />}
-              label="Faturamento a receber"
-              value={currency(totals.receivable)}
-              detail="Serviços finalizados e não pagos"
-            />
-            <Metric
-              icon={<BarChart3 />}
-              label="Taxa de conversão"
-              value={
-                (leads.length ? (paid.length / leads.length) * 100 : 0).toFixed(
-                  1,
-                ) + "%"
-              }
-              detail="Pagos sobre total de leads"
-            />
+            <ServicePerformance leads={leads} />
             <div className="dashPanels">
               <section className="panel">
                 <h2>Etapas do atendimento</h2>
@@ -921,142 +743,6 @@ export default function Home() {
                     </strong>
                   </div>
                 ))}
-              </section>
-              <section className="panel">
-                <h2>Classificação de contatos</h2>
-                {contacts
-                  .filter((c) => c.classification !== "lead")
-                  .map((c) => (
-                    <div className="dashRow" key={c.id}>
-                      <span>
-                        {c.display_name || c.phone || "Contato"} ·{" "}
-                        {c.classification === "personal"
-                          ? "Pessoal"
-                          : "A classificar"}
-                      </span>
-                      <div>
-                        <button
-                          disabled={busy === c.id}
-                          className="smallAction"
-                          onClick={() => void classifyContact(c.id, "lead")}
-                        >
-                          Comercial
-                        </button>
-                        {c.classification !== "personal" && (
-                          <button
-                            disabled={busy === c.id}
-                            className="smallAction"
-                            onClick={() =>
-                              void classifyContact(c.id, "personal")
-                            }
-                          >
-                            Pessoal
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                <h2>Desempenho por origem</h2>
-                {Array.from(
-                  new Set(leads.map((l) => l.campaign_code || l.source)),
-                ).map((origin) => (
-                  <div className="dashRow" key={origin}>
-                    <span>{origin}</span>
-                    <strong>
-                      {
-                        leads.filter(
-                          (l) => (l.campaign_code || l.source) === origin,
-                        ).length
-                      }{" "}
-                      leads ·{" "}
-                      {
-                        paid.filter(
-                          (l) => (l.campaign_code || l.source) === origin,
-                        ).length
-                      }{" "}
-                      pagos
-                    </strong>
-                  </div>
-                ))}
-                <h2>Serviços</h2>
-                <div className="dashRow">
-                  <span>Cadastro na Uber</span>
-                  <strong>
-                    {leads.filter((l) => l.service === "uber").length}
-                  </strong>
-                </div>
-                <div className="dashRow">
-                  <span>Documento do carro</span>
-                  <strong>
-                    {leads.filter((l) => l.service === "documento").length}
-                  </strong>
-                </div>
-                <form onSubmit={(e) => void saveDocumentSplit(e)}>
-                  <h3>Divisão do documento do carro</h3>
-                  <p className="muted">
-                    Venda de R$ 150,00. Informe a divisão acordada; sem
-                    configuração, nenhum repasse será presumido.
-                  </p>
-                  <label className="fieldLabel">
-                    Parte do Bahiano (R$)
-                    <input
-                      type="number"
-                      name="bahiano"
-                      min="0"
-                      max="150"
-                      step="0.01"
-                      required
-                      defaultValue={
-                        documentSplit.bahiano_cents === null
-                          ? ""
-                          : documentSplit.bahiano_cents / 100
-                      }
-                    />
-                  </label>
-                  <label className="fieldLabel">
-                    Comissão da campanha (R$)
-                    <input
-                      type="number"
-                      name="campaign"
-                      min="0"
-                      max="150"
-                      step="0.01"
-                      required
-                      defaultValue={
-                        documentSplit.campaign_cents === null
-                          ? ""
-                          : documentSplit.campaign_cents / 100
-                      }
-                    />
-                  </label>
-                  <button className="smallAction" disabled={busy === "split"}>
-                    Salvar divisão
-                  </button>
-                </form>
-                <form onSubmit={(e) => void saveCampaignCosts(e)}>
-                  <h3>Custos das campanhas</h3>
-                  <p className="muted">
-                    Informe o custo acumulado de anúncios e operação do mesmo
-                    período dos recebimentos. Sem esse valor, o lucro permanece
-                    indefinido.
-                  </p>
-                  <label className="fieldLabel">
-                    Custo acumulado (R$)
-                    <input
-                      type="number"
-                      name="cost"
-                      min="0"
-                      step="0.01"
-                      required
-                      defaultValue={
-                        campaignCosts === null ? "" : campaignCosts / 100
-                      }
-                    />
-                  </label>
-                  <button className="smallAction" disabled={busy === "costs"}>
-                    Salvar custos
-                  </button>
-                </form>
               </section>
             </div>
           </div>
