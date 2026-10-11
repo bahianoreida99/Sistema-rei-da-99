@@ -146,6 +146,18 @@ async function send(
     ).length
   )
     return;
+  if (lead.source === "demonstracao") {
+    await insert("messages", {
+      lead_id: lead.id,
+      contact_id: lead.contact_id,
+      waha_id: "demo-" + crypto.randomUUID(),
+      direction: "outgoing",
+      kind: "text",
+      body: message,
+      action_key: actionKey || null,
+    });
+    return;
+  }
   if (!wahaUrl || !wahaKey) throw Error("WAHA não configurado");
   const r = await fetch(wahaUrl + "/api/sendText", {
     method: "POST",

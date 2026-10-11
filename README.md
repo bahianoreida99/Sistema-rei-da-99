@@ -44,6 +44,8 @@ Financeiro considera recebimentos confirmados após entrega. Uber: venda R$ 350,
 
 As sete tabelas do CRM participam da publicação Supabase Realtime, protegidas pelas políticas administrativas existentes. O painel mantém uma assinatura estável ao trocar de atendimento, atualiza a conversa aberta e busca novamente os dados ao reconectar ou voltar à janela. Há recuperação por consulta periódica quando a conexão cai.
 
+O botão **Ver exemplos** mostra oito atendimentos fictícios nas seis etapas, conversas e documentos representativos sem arquivos pessoais. Dashboard e Kanban separam esses registros (`source=demonstracao`) dos dados reais. **Voltar aos dados reais** restaura a operação normal. Mensagens de atendimentos fictícios são simuladas dentro do CRM, sem chamadas ao WhatsApp.
+
 ## Qualidade e limites da validação
 
 Os testes executam a API real com banco/transporte simulados, sem envio externo. Cobrem autorização, origem, pessoais/desconhecidos, primeira resposta, duplicatas, anexos privados, origem externa recusada, documentação ausente, produção, finalização, comprovante, entrega/pagamento, pausa, bot desativado, falhas WAHA, recuperação de evento e eventos do telefone/sessão. Testes financeiros cobrem receita, comissão, atribuição e divisão configurável.

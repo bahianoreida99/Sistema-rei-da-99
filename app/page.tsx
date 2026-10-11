@@ -78,6 +78,11 @@ export default function Home() {
     bahiano_cents: 10000,
     campaign_cents: 5000,
   });
+  const [demo, setDemo] = useState(false);
+  const viewLeads = useMemo(
+    () => leads.filter((lead) => (lead.source === "demonstracao") === demo),
+    [leads, demo],
+  );
   const selectedRef = useRef<string | null>(null);
   selectedRef.current = selected;
   const active = leads.find((l) => l.id === selected) || null;
@@ -186,17 +191,17 @@ export default function Home() {
   }, [selected, refreshMessages]);
   const filtered = useMemo(
     () =>
-      leads.filter(
+      viewLeads.filter(
         (l) =>
           (filter === "todos" || l.service === filter) &&
           [l.display_name, l.phone, l.issue, l.source].some((x) =>
             lower(x).includes(lower(query)),
           ),
       ),
-    [leads, filter, query],
+    [viewLeads, filter, query],
   );
   const docsFor = (id: string) => documents.filter((d) => d.lead_id === id);
-  const totals = finance(leads, documentSplit);
+  const totals = finance(viewLeads, documentSplit);
   const paid = totals.paid;
   const unpaid = totals.awaitingPayment;
   const paidUber = paid.filter((l) => l.service === "uber");
@@ -677,6 +682,12 @@ export default function Home() {
             </div>
           )}
         </header>
+        <div className="notice">
+          <span>{demo ? "Demonstração: clientes e valores fictícios para apresentação." : "Exibindo apenas atendimentos reais."}</span>
+          <button className="smallAction" onClick={() => { setDemo(!demo); setSelected(null); setQuery(""); }}>
+            {demo ? "Voltar aos dados reais" : "Ver exemplos"}
+          </button>
+        </div>
         {notice && (
           <div className="notice" role="status">
             {notice}
@@ -722,21 +733,21 @@ export default function Home() {
                 icon={<Activity />}
                 label="Sua comissão recebida"
                 value={currency(campaignCommission)}
-                detail="R$ 80 por Uber pago de origem rastreada"
+                detail="R$ 80 por Uber · R$ 50 por documento"
               />
               <Metric
                 icon={<BarChart3 />}
                 label="Taxa de conversão"
                 value={
-                  (leads.length
-                    ? (paid.length / leads.length) * 100
+                  (viewLeads.length
+                    ? (paid.length / viewLeads.length) * 100
                     : 0
                   ).toFixed(1) + "%"
                 }
                 detail="Pagos sobre total de atendimentos"
               />
             </div>
-            <ServicePerformance leads={leads} />
+            <ServicePerformance leads={viewLeads} />
             <div className="dashPanels">
               <section className="panel">
                 <h2>Etapas do atendimento</h2>
@@ -744,7 +755,7 @@ export default function Home() {
                   <div key={s.id} className="dashRow">
                     <span>{s.title}</span>
                     <strong>
-                      {leads.filter((l) => l.stage === s.id).length}
+                      {viewLeads.filter((l) => l.stage === s.id).length}
                     </strong>
                   </div>
                 ))}

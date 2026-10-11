@@ -450,6 +450,15 @@ r = await req(
 assert.equal(direct.stage, "producao");
 assert.match(r.error, /Falha operacional/);
 failSend = false;
+const originalSource = direct.source;
+direct.source = "demonstracao";
+const realSendCount = outbound.length;
+r = await req("admin/send", { lead_id: direct.id, text: "Mensagem fictícia para apresentação" }, { authorization: "Bearer good" });
+assert.equal(r.ok, true);
+assert.equal(outbound.length, realSendCount, "Demo actions must not call WhatsApp");
+assert.ok(tables.messages.some((message) => message.lead_id === direct.id && message.body === "Mensagem fictícia para apresentação"));
+direct.source = originalSource;
+console.log("PASS: demonstration messages stay inside CRM without WhatsApp sends.");
 // An inactive bot does not greet real contacts.
 tables.business_settings[0].value.enabled = false;
 sentCount = outbound.length;
