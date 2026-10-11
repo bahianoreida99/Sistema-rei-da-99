@@ -10,6 +10,7 @@ export default function WhatsappPanel() {
   const [qr, setQr] = useState("");
   const [expiresAt, setExpiresAt] = useState(0);
   const [remaining, setRemaining] = useState(0);
+  const [awaitingQr, setAwaitingQr] = useState(false);
   const actionPending = useRef(false);
   const generation = useRef(0);
   const connected = status === "WORKING";
@@ -51,6 +52,7 @@ export default function WhatsappPanel() {
             if (data.connected) {
               setQr("");
               setExpiresAt(0);
+              setAwaitingQr(false);
             }
           }
         }
@@ -73,6 +75,42 @@ export default function WhatsappPanel() {
       clearTimeout(timer);
     };
   }, [request]);
+  useEffect(() => {
+    if (!awaitingQr) return;
+    const timeout = setTimeout(() => {
+      setAwaitingQr(false);
+      setError(
+        "Não foi possível gerar o QR Code. Clique em Conectar para tentar novamente.",
+      );
+    }, 45000);
+    return () => clearTimeout(timeout);
+  }, [awaitingQr]);
+  useEffect(() => {
+    if (!awaitingQr || status !== "SCAN_QR_CODE") return;
+    let stopped = false;
+    const version = generation.current;
+    void (async () => {
+      try {
+        const blob = await (await request("qr")).blob();
+        if (!stopped && version === generation.current) {
+          setQr(URL.createObjectURL(blob));
+          setRemaining(60);
+          setExpiresAt(Date.now() + 60000);
+          setAwaitingQr(false);
+        }
+      } catch {
+        if (!stopped) {
+          setAwaitingQr(false);
+          setError(
+            "Não foi possível gerar o QR Code. Clique em Conectar novamente.",
+          );
+        }
+      }
+    })();
+    return () => {
+      stopped = true;
+    };
+  }, [awaitingQr, status, request]);
   useEffect(() => {
     if (!expiresAt) return;
     let stopped = false;
@@ -122,14 +160,14 @@ export default function WhatsappPanel() {
     setError("");
     setQr("");
     setExpiresAt(0);
+    setAwaitingQr(false);
     try {
       const data = await (
         await request(connected ? "disconnect" : "connect", "POST")
       ).json();
       setStatus(data.status);
       if (!connected && !data.connected) {
-        setRemaining(60);
-        setExpiresAt(Date.now() + 60000);
+        setAwaitingQr(true);
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Falha na conexão.");
@@ -176,7 +214,7 @@ export default function WhatsappPanel() {
           {error}
         </p>
       )}
-      {expiresAt > 0 && !connected && (
+      {(awaitingQr || expiresAt > 0) && !connected && (
         <div className="qrConnection">
           {qr ? (
             <img
@@ -188,11 +226,11 @@ export default function WhatsappPanel() {
           ) : (
             <p>Preparando seu QR Code…</p>
           )}
-          <strong>Tempo restante: {remaining}s</strong>
+          {expiresAt > 0 && <strong>Tempo restante: {remaining}s</strong>}
           <p>No WhatsApp, abra Aparelhos conectados → Conectar aparelho.</p>
         </div>
       )}
-      {!expiresAt && status === "SCAN_QR_CODE" && (
+      {!expiresAt && !awaitingQr && status === "SCAN_QR_CODE" && (
         <p className="muted">
           Clique em Conectar para gerar um novo QR Code por um minuto.
         </p>
