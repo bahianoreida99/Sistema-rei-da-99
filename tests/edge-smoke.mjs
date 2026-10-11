@@ -465,6 +465,21 @@ r = await req(
   hookHeaders,
 );
 assert.equal(outbound.length, sentCount);
+// Test mode must never send to a contact outside its explicit allowlist.
+tables.business_settings[0].value = {
+  enabled: true,
+  test_chat_ids: ["5511999990099@c.us"],
+};
+const testEvent = (id, from) => ({
+  ...event(id, "Preciso de documento do carro"),
+  payload: { ...event(id, "Preciso de documento do carro").payload, from },
+});
+await req("webhook/waha", testEvent("test-scope-denied", "5511999990098@c.us"), hookHeaders);
+assert.equal(outbound.length, sentCount);
+await req("webhook/waha", testEvent("test-scope-allowed", "5511999990099@c.us"), hookHeaders);
+assert.equal(outbound.length, sentCount + 1);
+tables.business_settings[0].value = { enabled: false };
+console.log("PASS: test-mode automation only sends to its authorized contact.");
 console.log(
   "PASS: simulated webhook/authentication, personal and unknown contacts, campaign and direct source, first reply, deduplication, private media, unclassified image, SSRF rejection, missing documents/email, production, finish, proof, delivery before payment, pause, details, bot disabled, WAHA failure. No real messages sent.",
 );

@@ -14,8 +14,12 @@ Painel: https://bahiano-painel-production.up.railway.app
 - Lint, verificações TypeScript, testes da API e do financeiro, build de produção e layout móvel passaram.
 - Uber: R$350 = R$270 Bahiano + R$80 comissão. Documento: R$150 = R$100 Bahiano + R$50 comissão. Comissões totais e atribuição por campanha são cálculos separados.
 
-## Pendente de número autorizado
+## Homologação dos envios ao número autorizado
 
-O proprietário escolheu informar outro número para homologar os envios externos. A automação global permanece desativada até esse teste. Saudações, solicitação de documentos, aviso de produção, convite de videochamada, anexos privados e downloads ZIP têm cobertura automatizada com transporte simulado; os envios reais e o percurso completo pelo celular ainda precisam dessa homologação.
+O proprietário informou um número de teste reconhecido pelo WhatsApp. A API publicada realizou quatro envios reais: identificação do teste, saudação, aviso de produção e convite de videochamada. Foram verificados os registros de saída, a saudação única após webhook repetido, a mudança para Conversando, a entrada automática em Produção após a última validação e o fluxo de finalização/entrega/pagamento.
+
+As entradas foram simuladas por webhook autenticado e a documentação foi representada por registros temporários sem arquivos pessoais. Isso valida os envios reais e a lógica operacional, mas não substitui o percurso de recebimento de documentos pelo celular. Os dados temporários do CRM foram removidos. Durante a homologação, a automação respondeu somente ao número autorizado; o modo restrito também possui teste de regressão.
+
+Após esses testes, a automação foi habilitada para operação. A confirmação de recebimento das quatro mensagens pelo destinatário foi solicitada: o WAHA aceitou os envios, mas a configuração atual de armazenamento não permite consultar uma confirmação individual de entrega confiável. Solicitação de documentos, anexos privados e downloads ZIP continuam com cobertura simulada e exigem arquivos autorizados para uma homologação integral.
 
 Referências técnicas: [Supabase Realtime](https://supabase.com/docs/guides/realtime/subscribing-to-database-changes), [configuração dos webhooks WAHA](https://waha.devlike.pro/docs/how-to/config/).

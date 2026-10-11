@@ -123,10 +123,12 @@ async function safeToken(got: string, expected: string) {
   for (let i = 0; i < x.length; i++) diff |= x[i] ^ y[i];
   return diff === 0;
 }
-async function botOn() {
+async function botOn(chatId?: string) {
   const v = (await rows("business_settings", "?key=eq.bot&select=value"))[0]
     ?.value;
-  return v?.enabled === true;
+  return v?.enabled === true &&
+    (!Array.isArray(v.test_chat_ids) ||
+      (Boolean(chatId) && v.test_chat_ids.includes(chatId)));
 }
 async function send(
   chatId: string,
@@ -432,7 +434,7 @@ async function webhook(body: any) {
       !lead.automation_paused &&
       lead.service !== "desconhecido" &&
       ["leads", "leads_campaign"].includes(lead.stage) &&
-      (await botOn())
+      (await botOn(chat))
     ) {
       await send(chat, initial(lead), lead, "welcome:" + lead.id);
       await update("leads", lead.id, { welcome_sent_at: now });
@@ -450,7 +452,7 @@ async function webhook(body: any) {
   }
   if (
     lead.automation_paused ||
-    !(await botOn()) ||
+    !(await botOn(chat)) ||
     ["producao", "finalizados", "pagos"].includes(lead.stage)
   )
     return { lead_id: lead.id, stage: lead.stage, paused: true };
@@ -567,7 +569,7 @@ async function admin(req: Request, path: string) {
       lead.service !== "desconhecido" &&
       lead.email &&
       lead.phone &&
-      (await botOn())
+      (await botOn(contact.chat_id))
     ) {
       const verified = await rows(
         "documents",
