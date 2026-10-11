@@ -650,14 +650,28 @@ export default function Home() {
     e.preventDefault();
     setLoginError("");
     if (!supabase) return;
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
+    const loginEmail = email.trim().toLowerCase();
+    if (loginEmail !== ADMIN_EMAIL) {
+      setLoginError("Acesso restrito ao administrador do Bahiano.");
+      return;
+    }
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: loginEmail,
       password,
     });
-    if (error) setLoginError(error.message);
-    else if (lower(email) !== ADMIN_EMAIL) {
+    if (error) {
+      setLoginError(
+        error.code === "email_not_confirmed"
+          ? "Confirme seu e-mail pelo link enviado pelo Supabase antes de entrar."
+          : error.code === "invalid_credentials"
+            ? "E-mail ou senha incorretos. Confira os dados e tente novamente."
+            : "Não foi possível entrar. Tente novamente em instantes.",
+      );
+    } else if (!data.user?.email_confirmed_at) {
       await supabase.auth.signOut();
-      setLoginError("Acesso restrito ao administrador do Bahiano.");
+      setLoginError(
+        "Confirme seu e-mail pelo link enviado pelo Supabase antes de entrar.",
+      );
     }
   };
   if (!ready) return <div className="fullCenter">Carregando painel...</div>;
