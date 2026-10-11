@@ -5,7 +5,7 @@ export interface DocumentSplit {
 }
 export function finance(
   leads: Lead[],
-  split: DocumentSplit = { bahiano_cents: null, campaign_cents: null },
+  split: DocumentSplit = { bahiano_cents: 10000, campaign_cents: 5000 },
 ) {
   const paid = leads.filter(
     (l) =>
@@ -30,6 +30,10 @@ export function finance(
     awaitingPayment: outstanding.filter((l) => Boolean(l.delivered_at)),
     received: paid.reduce((sum, l) => sum + l.price_cents, 0),
     receivable: outstanding.reduce((sum, l) => sum + l.price_cents, 0),
+    commission: paid.reduce(
+      (sum, l) => sum + (l.service === "uber" ? 8000 : l.service === "documento" && validSplit ? Number(split.campaign_cents) : 0),
+      0,
+    ),
     bahiano: paid.reduce(
       (sum, l) =>
         sum +

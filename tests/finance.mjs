@@ -22,6 +22,7 @@ const base = {
 let result = exports.finance([base]);
 assert.equal(result.received, 35000);
 assert.equal(result.bahiano, 27000);
+assert.equal(result.commission, 8000);
 assert.equal(result.campaign, 0, "Organic website is not campaign attribution");
 result = exports.finance([{ ...base, campaign_code: "CAMPAIGN" }]);
 assert.equal(result.campaign, 8000);
@@ -41,9 +42,11 @@ const document = {
   campaign_code: "CAR",
 };
 result = exports.finance([document]);
-assert.equal(result.bahiano, 0);
-assert.equal(result.campaign, 0);
-assert.equal(result.documentSplitPending, true);
+assert.equal(result.bahiano, 10000);
+assert.equal(result.commission, 5000);
+assert.equal(result.campaign, 5000);
+assert.equal(result.documentSplitPending, false);
+assert.equal(result.received, result.bahiano + result.commission);
 result = exports.finance([document], {
   bahiano_cents: 10000,
   campaign_cents: 5000,

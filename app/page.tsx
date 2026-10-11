@@ -75,8 +75,8 @@ export default function Home() {
     [busy, setBusy] = useState(""),
     [notice, setNotice] = useState("");
   const [documentSplit, setDocumentSplit] = useState<DocumentSplit>({
-    bahiano_cents: null,
-    campaign_cents: null,
+    bahiano_cents: 10000,
+    campaign_cents: 5000,
   });
   const selectedRef = useRef<string | null>(null);
   selectedRef.current = selected;
@@ -149,32 +149,37 @@ export default function Home() {
   useEffect(() => {
     if (!authed || !supabase) return;
     void refresh();
-    const channel = supabase
-      .channel("crm-updates")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "leads" },
-        () => void refresh(),
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "documents" },
-        () => void refresh(),
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "messages" },
-        () => {
-          if (selected) void refreshMessages(selected);
-        },
-      )
-      .subscribe();
-    const id = setInterval(() => void refresh(), 20000);
+    let subscribed = false;
+    let pending: ReturnType<typeof setTimeout> | undefined;
+    const catchUp = () => {
+      void refresh();
+      if (selectedRef.current) void refreshMessages(selectedRef.current);
+    };
+    const schedule = () => {
+      if (pending) return;
+      pending = setTimeout(() => { pending = undefined; catchUp(); }, 100);
+    };
+    const channel = supabase.channel("crm-updates");
+    for (const table of ["leads", "contacts", "documents", "messages", "business_settings", "campaigns", "lead_activity"]) {
+      channel.on("postgres_changes", { event: "*", schema: "public", table }, schedule);
+    }
+    channel.subscribe((status) => {
+      subscribed = status === "SUBSCRIBED";
+      if (subscribed) catchUp();
+    });
+    const id = setInterval(() => { if (!subscribed) catchUp(); }, 3000);
+    const safety = setInterval(catchUp, 30000);
+    window.addEventListener("focus", catchUp);
+    window.addEventListener("online", catchUp);
     return () => {
       clearInterval(id);
+      clearInterval(safety);
+      clearTimeout(pending);
+      window.removeEventListener("focus", catchUp);
+      window.removeEventListener("online", catchUp);
       void supabase?.removeChannel(channel);
     };
-  }, [authed, refresh, selected, refreshMessages]);
+  }, [authed, refresh, refreshMessages]);
   useEffect(() => {
     setMessages([]);
     if (selected) void refreshMessages(selected);
@@ -196,7 +201,7 @@ export default function Home() {
   const unpaid = totals.awaitingPayment;
   const paidUber = paid.filter((l) => l.service === "uber");
   const revenue = totals.received;
-  const campaignCommission = totals.campaign;
+  const campaignCommission = totals.commission;
   const bahianoKnown = totals.bahiano;
   const docPending = totals.documentSplitPending;
   const adminCall = async (
@@ -715,7 +720,7 @@ export default function Home() {
               />
               <Metric
                 icon={<Activity />}
-                label="Comissão recebida da campanha"
+                label="Sua comissão recebida"
                 value={currency(campaignCommission)}
                 detail="R$ 80 por Uber pago de origem rastreada"
               />

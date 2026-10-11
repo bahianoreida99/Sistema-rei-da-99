@@ -40,7 +40,9 @@ Uber usa CNH frente/verso, RG frente/verso, CRLV e selfie. Documento do carro us
 
 Começar carrega a área de produção. Documentos permitem visualização temporária, download individual e ZIP. Finalizado envia convite para videochamada. Registrar entrega é obrigatório antes de Confirmar pagamento. Comprovantes e declarações de pagamento ficam pendentes de confirmação real.
 
-Financeiro considera recebimentos confirmados após entrega. Uber: venda R$ 350, parte Bahiano R$ 270 e comissão rastreada R$ 80. A divisão do documento de R$ 150 é configurável no Dashboard; nenhum repasse é presumido antes disso.
+Financeiro considera recebimentos confirmados após entrega. Uber: venda R$ 350, parte Bahiano R$ 270 e sua comissão R$ 80. Documento do carro: venda R$ 150, parte Bahiano R$ 100 e sua comissão R$ 50. O painel mostra sua comissão de todos os serviços pagos; a atribuição por campanha permanece separada no cálculo.
+
+As sete tabelas do CRM participam da publicação Supabase Realtime, protegidas pelas políticas administrativas existentes. O painel mantém uma assinatura estável ao trocar de atendimento, atualiza a conversa aberta e busca novamente os dados ao reconectar ou voltar à janela. Há recuperação por consulta periódica quando a conexão cai.
 
 ## Qualidade e limites da validação
 

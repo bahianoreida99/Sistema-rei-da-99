@@ -10,7 +10,7 @@ Autorize `gh auth login` como `bahianoreida99`. O script `publicar-github.ps1` v
 
 Antes de migrar, inspecione `information_schema.columns`, `pg_policies`, grants e `supabase_migrations.schema_migrations`. Faça backup. `CREATE TABLE IF NOT EXISTS` na migração inicial não corrige diferenças de colunas ou políticas em um banco existente.
 
-Migrações adicionais são aditivas: `20261011000200_security_and_retention.sql` verifica administrador confirmado e transições financeiras; `20261011000300_webhook_recovery.sql` acrescenta fila privada, lease, retries e colunas de deduplicação. Aplique somente depois de comparar com o esquema real. Não marque migrations como aplicadas sem conferir os objetos do banco.
+Migrações adicionais são aditivas: `20261011000200_security_and_retention.sql` verifica administrador confirmado e transições financeiras; `20261011000300_webhook_recovery.sql` acrescenta fila privada, lease, retries e colunas de deduplicação; `20261011000400_realtime_and_service_pricing.sql` publica as sete tabelas do CRM e configura os repasses acordados. As três foram aplicadas e verificadas no banco em 11/10/2026. O banco também possui duas migrações anteriores em seu histórico; não substitua esse histórico pela migração inicial local.
 
 O bucket `bahiano-documentos` deve ser privado. URLs assinadas duram 60 segundos. Somente `bahiano.reida99uber@gmail.com`, com e-mail confirmado, pode administrar. Nunca coloque a chave service_role no frontend.
 
@@ -29,12 +29,12 @@ Configure no serviço `bahiano-api`: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPAB
 Preserve o volume `/app/.sessions`, a API Key e a proteção de Dashboard/Swagger. Porta interna 8080. Configure um único webhook depois da homologação:
 
 ```dotenv
-WHATSAPP_HOOK_URL=https://bahiano-api-production.up.railway.app/webhook/waha
+WHATSAPP_HOOK_URL=http://bahiano-api.railway.internal:3001/webhook/waha
 WHATSAPP_HOOK_EVENTS=message,message.any,session.status
 WHATSAPP_HOOK_CUSTOM_HEADERS=X-Bahiano-Webhook-Token:<segredo-do-backend>
-WHATSAPP_HOOK_RETRIES_POLICY=linear
+WHATSAPP_HOOK_RETRIES_POLICY=exponential
 WHATSAPP_HOOK_RETRIES_DELAY_SECONDS=2
-WHATSAPP_HOOK_RETRIES_ATTEMPTS=3
+WHATSAPP_HOOK_RETRIES_ATTEMPTS=5
 ```
 
 Configure o segredo diretamente na Railway. Confira também os webhooks da sessão, que podem prevalecer sobre as variáveis globais. Mantenha `business_settings.bot.enabled=false` até confirmar o telefone do Bahiano e homologar o fluxo sem clientes reais.
