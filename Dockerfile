@@ -9,8 +9,10 @@ RUN node scripts/build-api.mjs
 FROM node:22-bookworm-slim
 WORKDIR /app
 ENV NODE_ENV=production
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev --no-audit --no-fund
 COPY --from=build /app/backend/dist backend/dist
-COPY backend/server.mjs backend/server.mjs
+COPY backend/*.mjs backend/
 USER node
 EXPOSE 3001
 CMD ["node", "backend/server.mjs"]

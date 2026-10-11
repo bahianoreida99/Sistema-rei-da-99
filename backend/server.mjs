@@ -1,4 +1,6 @@
 import http from "node:http";
+import { readDocument } from "./document-reader.mjs";
+globalThis.BahianoReadDocument = readDocument;
 
 // Both Railway and Supabase run the same API, with a single webhook target.
 globalThis.Deno = {

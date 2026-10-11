@@ -23,6 +23,7 @@ npm run lint
 npm run typecheck
 npm run typecheck:api
 npm test
+npm run test:documents
 npm run build
 npm run build:api
 npm run start:api
@@ -36,7 +37,9 @@ Mensagens desconhecidas não criam leads automaticamente. Classificações pesso
 
 Imagens sem identificação ficam em Outro. A conferência humana define tipo, legibilidade e aprovação. Solicitar faltantes exige 30 segundos após o último envio e não repete arquivos já recebidos. A produção exige documentos verificados, telefone e e-mail. Com robô habilitado, validar o último documento libera a produção; desabilitado, o administrador libera explicitamente.
 
-Uber usa CNH frente/verso, RG frente/verso, CRLV e selfie. Documento do carro usa RG frente/verso e CRLV. Valide essas listas comerciais antes de ativar. Não há modelo visual ou API de IA paga.
+Uber usa CNH frente/verso, RG frente/verso, CRLV e selfie. Documento do carro usa RG frente/verso e CRLV. O backend Railway faz leitura local de imagens e da primeira página de PDFs com Tesseract e PDF.js, sem API externa paga. Sugestões de tipo nunca validam identidade, autenticidade ou pagamento; a conferência humana permanece obrigatória. Selfie e lado sem informação suficiente exigem identificação na mensagem/conferência.
+
+Após a primeira resposta, a automação orienta o envio dos itens faltantes. Quando existe apenas um arquivo não identificado recente, uma mensagem como “RG frente” associa o tipo ao arquivo e mantém sua conferência pendente. A pausa por produção é liberada ao finalizar para acusar recebimento de comprovantes; pausas manuais são preservadas. Comprovantes identificados por leitura ficam em `proof_received`, sem contar como receita. Agendamentos e cobranças não são tratados como comprovante concluído.
 
 Começar carrega a área de produção. Documentos permitem visualização temporária, download individual e ZIP. Finalizado envia convite para videochamada. Registrar entrega é obrigatório antes de Confirmar pagamento. Comprovantes e declarações de pagamento ficam pendentes de confirmação real.
 

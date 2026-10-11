@@ -8,18 +8,23 @@
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "test": "node tests/edge-smoke.mjs && node tests/finance.mjs",
+    "test:documents": "node tests/document-reader.mjs",
     "lint": "eslint app lib scripts backend/server.mjs",
     "build:api": "node scripts/build-api.mjs",
     "start:api": "node backend/server.mjs",
     "typecheck:api": "tsc -p tsconfig.api.json"
   },
   "dependencies": {
+    "@napi-rs/canvas": "^1.0.11",
     "@supabase/supabase-js": "^2.57.0",
+    "@tesseract.js-data/por": "^1.0.0",
     "fflate": "^0.8.2",
     "lucide-react": "^0.468.0",
     "next": "16.4.0",
+    "pdfjs-dist": "^6.4.299",
     "react": "19.3.0",
-    "react-dom": "19.3.0"
+    "react-dom": "19.3.0",
+    "tesseract.js": "^7.0.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

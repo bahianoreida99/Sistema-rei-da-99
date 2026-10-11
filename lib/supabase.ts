@@ -51,6 +51,8 @@ export interface Doc {
   status: string;
   storage_path: string | null;
   received_at: string;
+  identification_note?: string | null;
+  identification_method?: string | null;
 }
 export const stages: { id: Stage; title: string; subtitle: string }[] = [
   { id: "leads", title: "Leads", subtitle: "Outras fontes" },

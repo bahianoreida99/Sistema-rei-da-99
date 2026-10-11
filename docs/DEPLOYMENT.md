@@ -14,11 +14,15 @@ Migrações adicionais são aditivas: `20261011000200_security_and_retention.sql
 
 O bucket `bahiano-documentos` deve ser privado. URLs assinadas duram 60 segundos. Somente `bahiano.reida99uber@gmail.com`, com e-mail confirmado, pode administrar. Nunca coloque a chave service_role no frontend.
 
+`20261011000500_document_identification.sql` acrescenta método, confiança e observação de identificação aos documentos. `20261011000600_automation_pause_reason.sql` distingue pausa manual da pausa por produção. Ambas foram aplicadas e verificadas em 11/10/2026.
+
 ## Railway
 
 ### API
 
 `Dockerfile` compila a API compartilhada. Start: `node backend/server.mjs`; porta 3001; domínio deve apontar para 3001.
+
+O backend inclui o leitor local de imagens/PDFs, o modelo de português e dependências nativas de canvas distribuídas pelo npm. Uma leitura usa worker isolado, limite de 25 segundos e fila limitada. Falhas de leitura mantêm conferência pendente; o texto extraído não é persistido integralmente. O Supabase Edge não executa esse worker Node.
 
 Configure no serviço `bahiano-api`: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `WAHA_BASE_URL`, `WAHA_API_KEY`, `BAHIANO_WEBHOOK_TOKEN`, `PORT=3001`. `WEBHOOK_TOKEN` é aceito como alias da configuração anterior. Valores privados ficam somente nos secrets.
 
@@ -35,9 +39,15 @@ WHATSAPP_HOOK_CUSTOM_HEADERS=X-Bahiano-Webhook-Token:<segredo-do-backend>
 WHATSAPP_HOOK_RETRIES_POLICY=exponential
 WHATSAPP_HOOK_RETRIES_DELAY_SECONDS=2
 WHATSAPP_HOOK_RETRIES_ATTEMPTS=5
+WAHA_BASE_URL=http://waha-whatsapp.railway.internal:8080
+WAHA_PUBLIC_URL=https://waha-whatsapp-production-258f.up.railway.app
+WHATSAPP_FILES_LIFETIME=3600
+WHATSAPP_FILES_FOLDER=/app/.sessions/media
 ```
 
 Configure o segredo diretamente na Railway. Confira também os webhooks da sessão, que podem prevalecer sobre as variáveis globais. Mantenha `business_settings.bot.enabled=false` até confirmar o telefone do Bahiano e homologar o fluxo sem clientes reais.
+
+Links de mídia devem apontar para o WAHA configurado, nunca para localhost. O cache temporário de mídia foi ampliado de 3 minutos para 1 hora e colocado no volume privado existente para tolerar recuperação e reinício; o armazenamento permanente dos documentos continua no bucket privado do Supabase. Expiração desse cache não remove documentos já armazenados no Supabase.
 
 Para homologar saídas sem responder a outros contatos, use `business_settings.bot.value.test_chat_ids` com uma lista explícita de IDs WhatsApp autorizados e `enabled=true`. Remova a restrição (ou use `null`) somente para operação normal. O teste real de 11/10/2026 usou essa restrição e, ao concluir a validação das ações, habilitou a operação normal; a confirmação de recebimento pelo destinatário consta no relatório de validação.
 

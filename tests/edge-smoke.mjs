@@ -36,6 +36,7 @@ let i = 0;
 const outbound = [];
 let handler;
 let failSend = false;
+let ocrResult = { text: "", confidence: 0, method: "unavailable" };
 let whatsappState = "SCAN_QR_CODE";
 let failLogout = false;
 const sessionActions = [];
@@ -132,6 +133,7 @@ async function fetchMock(input, init = {}) {
 vm.runInNewContext(
   js.outputText,
   {
+    BahianoReadDocument: async () => ocrResult,
     Deno: {
       env: { get: (x) => env[x] },
       serve: (fn) => {
@@ -605,3 +607,56 @@ assert.deepEqual(sessionActions, ["logout"]);
 console.log(
   "PASS: protected WhatsApp pairing, method restrictions, no reset of QR/starting/working sessions, manual phone confirmation preserved, start stopped session, single restart after failure, logout then stop and logout failure.",
 );
+
+// Complete journeys for both services, including image content without captions.
+tables.business_settings[0].value = { enabled: true };
+const documentTexts = {
+  cnh_frente: "CARTEIRA NACIONAL DE HABILITACAO FRENTE Nome Registro",
+  cnh_verso: "CARTEIRA NACIONAL DE HABILITACAO VERSO Observacoes Registro",
+  rg_frente: "CARTEIRA DE IDENTIDADE REGISTRO GERAL FRENTE Nome Filiacao",
+  rg_verso: "CARTEIRA DE IDENTIDADE REGISTRO GERAL VERSO Data de expedicao",
+  crlv: "CERTIFICADO DE REGISTRO E LICENCIAMENTO CRLV VEICULO RENAVAM PLACA",
+};
+for (const service of ["uber", "documento"]) {
+  const phone = service === "uber" ? "5511999990101@c.us" : "5511999990102@c.us";
+  const incoming = (id, text, media = false) => ({ event: "message", session: "default", payload: { from: phone, id: service + "-" + id, body: text, fromMe: false, hasMedia: media, ...(media ? { media: { url: "https://waha.example/api/files/fixture.png", mimetype: "image/png", filename: "arquivo.png" } } : {}) } });
+  await req("webhook/waha", incoming("first", service === "uber" ? "Preciso de cadastro Uber" : "Preciso de documento do carro"), hookHeaders);
+  const journey = tables.leads.at(-1);
+  assert.equal(journey.stage, "leads");assert.ok(journey.welcome_sent_at);
+  await req("webhook/waha", incoming("reply", "Concordo. Meu email e teste@example.invalid"), hookHeaders);
+  assert.equal(journey.stage, "conversando");assert.equal(journey.email, "teste@example.invalid");
+  assert.match(outbound.at(-1).text,/Para continuar/);
+  ocrResult = { text: "Paisagem com arvores e flores sem documento", confidence: 94, method: "image_ocr" };
+  await req("webhook/waha", incoming("unknown", "", true), hookHeaders);
+  const unknown = tables.documents.at(-1);assert.equal(unknown.kind, "outro");assert.equal(unknown.status, "received");
+  assert.match(outbound.at(-1).text, /confirmar o tipo/);
+  unknown.received_at = new Date().toISOString();
+  await req("webhook/waha", incoming("identify-unknown", "RG frente"), hookHeaders);
+  assert.equal(unknown.kind,"rg_frente");assert.equal(unknown.identification_method,"message_followup");assert.equal(unknown.status,"received");
+  await req("admin/document", { lead_id: journey.id, document_id: unknown.id, kind: "outro", status: "rejected" }, { authorization: "Bearer good" });
+  const requiredKinds = service === "uber" ? ["cnh_frente","cnh_verso","rg_frente","rg_verso","crlv","selfie"] : ["rg_frente","rg_verso","crlv"];
+  for (let index = 0; index < requiredKinds.length; index++) {
+    const kind = requiredKinds[index];
+    ocrResult = { text: documentTexts[kind] || "", confidence: kind === "selfie" ? 0 : 92, method: "image_ocr" };
+    await req("webhook/waha", incoming(kind, kind === "selfie" ? "Selfie" : "", true), hookHeaders);
+    const document = tables.documents.at(-1);assert.equal(document.kind, kind);assert.equal(document.status,"received");assert.equal(journey.stage,"conversando", "OCR alone must not release production");
+    await req("admin/document", { lead_id: journey.id, document_id: document.id, kind, status: "verified" }, { authorization: "Bearer good" });
+    assert.equal(journey.stage, index === requiredKinds.length - 1 ? "producao" : "conversando");
+  }
+  if(service === "uber") await req("admin/pause",{lead_id:journey.id,paused:true},{authorization:"Bearer good"});
+  r = await req("admin/finish", { lead_id: journey.id }, { authorization: "Bearer good" });assert.equal(r.ok,true);assert.equal(journey.stage,"finalizados");
+  assert.equal(journey.automation_paused,service === "uber","Finalization must preserve manual pause and release production pause");
+  ocrResult = { text: "COMPROVANTE PIX AGENDADO Transferencia pendente Valor R$ 150,00 Recebedor Pessoa Teste", confidence: 93, method: "image_ocr" };
+  await req("webhook/waha", incoming("scheduled-proof", "", true), hookHeaders);assert.equal(tables.documents.at(-1).kind,"outro");assert.notEqual(journey.payment_status,"confirmed");
+  ocrResult = { text: "COMPROVANTE DE PAGAMENTO PIX Transferencia concluida Valor R$ 150,00 Recebedor Pessoa Teste Transacao TESTE", confidence: 93, method: "image_ocr" };
+  const beforeProof = outbound.length;
+  await req("webhook/waha", incoming("proof", "", true), hookHeaders);
+  assert.equal(tables.documents.at(-1).kind,"comprovante");assert.equal(journey.payment_status,"proof_received");assert.equal(journey.stage,"finalizados");assert.ok(journey.proof_received_at);
+  if(service === "uber") assert.equal(outbound.length,beforeProof,"Manual pause must suppress receipt reply");
+  else assert.match(outbound.at(-1).text,/continua pendente/);
+  r = await req("admin/payment", {lead_id:journey.id}, {authorization:"Bearer good"});assert.match(r.error,/entregue/);
+  await req("admin/deliver", {lead_id:journey.id}, {authorization:"Bearer good"});await req("admin/payment", {lead_id:journey.id}, {authorization:"Bearer good"});assert.equal(journey.payment_status,"confirmed");assert.equal(journey.stage,"pagos");
+  const documentCount = tables.documents.length;
+  await req("webhook/waha", incoming("proof", "", true), hookHeaders);assert.equal(tables.documents.length,documentCount);assert.equal(journey.payment_status,"confirmed");
+  console.log(`PASS complete ${service} journey: first/reply, unknown file, ${requiredKinds.length} documents, human validation, production, finish, scheduled proof rejected, OCR receipt without caption, delivery, manual payment, replay protection`);
+}

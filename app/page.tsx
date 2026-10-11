@@ -1015,6 +1015,7 @@ export default function Home() {
                                 ? "Rejeitado"
                                 : "Aguardando conferência"}
                           </small>
+                          {d.identification_note && <small>{d.identification_note}</small>}
                           {
                             <div className="docVerify">
                               <select

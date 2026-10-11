@@ -169,7 +169,7 @@ async function send(
   const id =
     typeof sent.id === "string"
       ? sent.id
-      : sent.id?._serialized || "out-" + crypto.randomUUID();
+      : sent.id?._serialized || (sent.key?.id ? "true_" + chatId + "_" + sent.key.id : "out-" + crypto.randomUUID());
   const saved = await insert("messages", {
     lead_id: lead.id,
     contact_id: lead.contact_id,
@@ -245,6 +245,45 @@ function docType(s: string) {
   if (/selfie/.test(x)) return "selfie";
   return "outro";
 }
+function identifyDocument(text: string, hint: string, confidence: number, method: string) {
+  const clean = text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const supplied = docType(hint);
+  let kind = "outro";
+  let ambiguous = false;
+  let note = "Não foi possível identificar com segurança. Confira o arquivo e informe o tipo.";
+  if (confidence >= 55 && clean.trim().length >= 25) {
+    const receipt = /comprovante|pix|transferencia/.test(clean) &&
+      /valor|r\$/.test(clean) && /recebedor|destinatario|beneficiario|transacao|pagador/.test(clean);
+    const charge = /qr code|copia e cola|cobranca|pague aqui/.test(clean) && !/concluid|realizad|efetuad|sucesso/.test(clean);
+    const pending = /agendad|pendente|nao realizad|cancelad|falhou|saldo insuficiente/.test(clean) || charge;
+    const vehicle = /crlv|licenciamento|certificado de registro/.test(clean) && /renavam|placa|veiculo/.test(clean);
+    const license = /carteira nacional.{0,20}habilita|\bcnh\b/.test(clean);
+    const identity = /registro geral|carteira de identidade|documento de identidade/.test(clean);
+    const families = [receipt, vehicle, license, identity].filter(Boolean).length;
+    if (receipt && !pending && families === 1) kind = "comprovante";
+    else if (vehicle && families === 1) kind = "crlv";
+    else if ((license || identity) && families === 1) {
+      const family = license ? "cnh" : "rg";
+      ambiguous = /frente/.test(clean) && /verso|atras/.test(clean);
+      const side = /verso|atras/.test(clean) ? "verso" : /frente/.test(clean) ? "frente" : null;
+      if (ambiguous) note = "Frente e verso encontrados no mesmo arquivo. Confira e separe os lados.";
+      else if (side) kind = family + "_" + side;
+      else if (supplied.startsWith(family + "_")) kind = supplied;
+      else note = `${family.toUpperCase()} identificada. Confira e informe se é frente ou verso.`;
+    }
+    if (pending && receipt) note = "Possível agendamento ou transferência pendente; não comprova pagamento realizado.";
+    else if (families > 1) { ambiguous = true; note = "Mais de um tipo de documento encontrado; confira e separe os arquivos."; }
+    if (kind !== "outro") note = kind === "comprovante"
+      ? "Comprovante identificado pela leitura do arquivo. Confira valor, destinatário e recebimento; não confirma pagamento."
+      : "Tipo sugerido pela leitura do arquivo. A legibilidade e a validade exigem conferência.";
+  }
+  if (kind === "outro" && supplied !== "outro" && !ambiguous && !/agendad|pendente|nao realizad|cancelad|falhou|saldo insuficiente|qr code|cobranca/.test(clean)) {
+    kind = supplied;
+    method = "caption";
+    note = "Tipo informado na mensagem ou nome do arquivo; conteúdo ainda exige conferência.";
+  }
+  return { kind, identification_method: method, identification_confidence: method === "caption" ? 0 : Math.max(0, Math.min(100, Math.round(confidence || 0))), identification_note: note };
+}
 async function mediaUpload(p: any, lead: any, msg: any, kind: string) {
   const mime = String(p.media?.mimetype || p.media?.mimeType || "");
   const media = String(p.media?.url || "");
@@ -277,7 +316,7 @@ async function mediaUpload(p: any, lead: any, msg: any, kind: string) {
     redirect: "error",
     signal: AbortSignal.timeout(20000),
   });
-  if (!r.ok) return false;
+  if (!r.ok) throw Error("Não foi possível baixar o anexo; será tentado novamente");
   const data = await r.arrayBuffer();
   if (data.byteLength > 12 * 1024 * 1024) return false;
   const ext =
@@ -289,9 +328,17 @@ async function mediaUpload(p: any, lead: any, msg: any, kind: string) {
           ? "webp"
           : "jpg";
   if (
-    (await rows("documents", "?message_id=eq." + msg.id + "&select=id")).length
+    (await rows("documents", "?message_id=eq." + msg.id + "&select=*")).length
   )
-    return true;
+    return (await rows("documents", "?message_id=eq." + msg.id + "&select=*"))[0];
+  const reader = (globalThis as any).BahianoReadDocument;
+  const read = typeof reader === "function"
+    ? await reader(data, mime)
+    : { text: "", confidence: 0, method: "unavailable" };
+  const detected = identifyDocument(String(read.text || ""), String(p.body || "") + " " + String(p.media?.filename || ""), Number(read.confidence || 0), String(read.method || "unavailable"));
+  if (Number(read.pages) > 1) detected.identification_note += " A leitura automática considerou apenas a primeira página; confira todas as páginas.";
+  // Preserve explicit selfie labels; OCR cannot establish identity or authenticity.
+  if (kind === "selfie" && detected.kind === "outro") detected.kind = "selfie";
   const path = lead.id + "/" + msg.id + "." + ext;
   const x = await fetch(url + "/storage/v1/object/bahiano-documentos/" + path, {
     method: "POST",
@@ -304,10 +351,10 @@ async function mediaUpload(p: any, lead: any, msg: any, kind: string) {
     body: data,
   });
   if (!x.ok && x.status !== 409) throw Error("Erro ao armazenar anexo");
-  await insert("documents", {
+  const document = await insert("documents", {
     lead_id: lead.id,
     message_id: msg.id,
-    kind,
+    ...detected,
     storage_path: path,
     mime_type: mime,
     original_filename: String(p.media?.filename || "arquivo." + ext).slice(
@@ -316,7 +363,7 @@ async function mediaUpload(p: any, lead: any, msg: any, kind: string) {
     ),
     status: "received",
   });
-  return true;
+  return document;
 }
 async function webhook(body: any) {
   if (body.session !== "default") return { ignored: true };
@@ -426,12 +473,11 @@ async function webhook(body: any) {
   const email = message.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0];
   if (email)
     lead = await update("leads", lead.id, { email: email.slice(0, 254) });
+  let uploaded: any = null;
+  if (p.hasMedia) uploaded = await mediaUpload(p, lead, msg, proposed);
   const proof =
     lead.stage === "finalizados" &&
-    (proposed === "comprovante" ||
-      (p.hasMedia && /comprovante|pix|paguei/i.test(message)));
-  if (p.hasMedia)
-    await mediaUpload(p, lead, msg, proof ? "comprovante" : proposed);
+    (uploaded?.kind === "comprovante" || (!p.hasMedia && proposed === "comprovante"));
   if (
     proof ||
     (lead.stage === "finalizados" &&
@@ -441,6 +487,10 @@ async function webhook(body: any) {
       payment_status: "proof_received",
       proof_received_at: now,
     });
+  if (proof && !lead.automation_paused && await botOn(chat)) {
+    await send(chat, "Recebemos o comprovante. ✅ O Baiano vai conferir o valor, o destinatário e o recebimento. O pagamento continua pendente até a confirmação.", lead, "proof-receipt:" + mid);
+    return { lead_id: lead.id, stage: lead.stage, payment_status: "proof_received" };
+  }
   if (!lead.welcome_sent_at) {
     if (
       !lead.automation_paused &&
@@ -453,8 +503,10 @@ async function webhook(body: any) {
     }
     return { lead_id: lead.id, stage: lead.stage, first: true };
   }
+  const firstReply = !lead.first_reply_at &&
+    ["leads", "leads_campaign"].includes(lead.stage);
   if (
-    !lead.first_reply_at &&
+    firstReply &&
     ["leads", "leads_campaign"].includes(lead.stage)
   ) {
     lead = await update("leads", lead.id, {
@@ -469,7 +521,7 @@ async function webhook(body: any) {
   )
     return { lead_id: lead.id, stage: lead.stage, paused: true };
   if (/falar com (atendente|pessoa|humano)|atendimento humano/i.test(message)) {
-    await update("leads", lead.id, { automation_paused: true });
+    await update("leads", lead.id, { automation_paused: true, automation_pause_reason: "manual" });
     await send(
       chat,
       "Certo! Vou encaminhar seu atendimento ao Baiano. Você pode continuar conversando por aqui.",
@@ -478,10 +530,32 @@ async function webhook(body: any) {
   } else if (p.hasMedia) {
     await send(
       chat,
-      "Recebemos o arquivo! ✅ Vamos conferir o documento. Se estiver faltando algum item, avisaremos por aqui.",
+      !uploaded
+        ? "Não conseguimos registrar esse arquivo. Envie uma imagem JPG/PNG/WebP ou PDF de até 12 MB."
+        : uploaded.kind === "comprovante"
+          ? "Recebemos o comprovante. ✅ O Baiano vai conferir o valor, o destinatário e o recebimento. O pagamento continua pendente até a confirmação."
+          : uploaded.kind === "outro"
+            ? "Recebemos o arquivo, mas precisamos confirmar o tipo ou o lado. Informe se é CNH frente/verso, RG frente/verso, CRLV ou selfie. Se estiver desfocado, envie uma nova foto nítida."
+            : "Recebemos o arquivo! ✅ Identificamos: " + (docs[uploaded.kind] || uploaded.kind) + ". Vamos conferir a legibilidade e os dados antes de validar.",
       lead,
       "receipt:" + mid,
     );
+  } else if (!p.hasMedia && proposed !== "outro" && proposed !== "comprovante") {
+    const unknown = await rows("documents", `?lead_id=eq.${lead.id}&kind=eq.outro&status=eq.received&order=received_at.desc&limit=2`);
+    if (unknown.length === 1 && Date.now() - Date.parse(unknown[0].received_at) < 10 * 60 * 1000) {
+      await update("documents", unknown[0].id, { kind: proposed, identification_method: "message_followup", identification_confidence: 0, identification_note: "Tipo informado em mensagem posterior. Ainda exige conferência." });
+      await send(chat, "Obrigado! Identificamos o arquivo como " + (docs[proposed] || proposed) + ". O Baiano ainda vai conferir a legibilidade e os dados.", lead, "identify-reply:" + mid);
+    } else {
+      await send(chat, "Envie o arquivo junto da identificação do tipo e do lado, para associarmos corretamente ao seu documento.", lead, "identify-reply:" + mid);
+    }
+  } else if (firstReply || email || /documentos?|enviar|faltando/i.test(message)) {
+    const existingDocs = await rows("documents", `?lead_id=eq.${lead.id}&select=kind,status`);
+    const missing = requiredFor(lead).filter(kind => !existingDocs.some(d => d.kind === kind && d.status !== "rejected"));
+    const list = missing.map(kind => "• " + docs[kind]);
+    if (!lead.email) list.push("• E-mail");
+    await send(chat, list.length ? "Perfeito! Para continuar o atendimento, envie:\n" + list.join("\n") + "\nEnvie uma foto nítida de cada lado. Se já enviou um arquivo sem identificação, informe o tipo e o lado." : "Recebemos os itens solicitados. O Baiano vai conferir os documentos antes de liberar a produção.", lead, "guidance:" + mid);
+  } else if (/valor|pre[cç]o|quanto|custa/i.test(message)) {
+    await send(chat, "O valor do serviço é " + (lead.service === "documento" ? "R$ 150,00" : "R$ 350,00") + ". O pagamento acontece após a entrega do serviço contratado. O Baiano vai analisar os documentos antes de confirmar a viabilidade.", lead, "price:" + mid);
   }
   return { lead_id: lead.id, stage: lead.stage };
 }
@@ -648,7 +722,7 @@ async function admin(req: Request, path: string) {
     return response({ ok: true, missing });
   }
   if (path === "/admin/pause") {
-    await update("leads", id, { automation_paused: data.paused !== false });
+    await update("leads", id, { automation_paused: data.paused !== false, automation_pause_reason: data.paused !== false ? "manual" : null });
     return response({ ok: true });
   }
   if (path === "/admin/deliver") {
@@ -711,7 +785,7 @@ async function admin(req: Request, path: string) {
       .slice(0, 3000);
     if (!content) return response({ error: "Mensagem vazia" }, 400);
     await send(contact.chat_id, content, lead);
-    await update("leads", id, { automation_paused: true });
+    await update("leads", id, { automation_paused: true, automation_pause_reason: "manual" });
     return response({ ok: true });
   }
   if (path === "/admin/production") {
@@ -748,6 +822,7 @@ async function admin(req: Request, path: string) {
       stage: "producao",
       documents_complete_at: new Date().toISOString(),
       automation_paused: true,
+      automation_pause_reason: "production",
     });
     await insert("lead_activity", {
       lead_id: id,
@@ -768,7 +843,8 @@ async function admin(req: Request, path: string) {
     await update("leads", id, {
       stage: "finalizados",
       finished_at: new Date().toISOString(),
-      automation_paused: true,
+      automation_paused: lead.automation_pause_reason === "production" ? false : lead.automation_paused,
+      automation_pause_reason: lead.automation_pause_reason === "production" ? null : lead.automation_pause_reason,
     });
     await insert("lead_activity", {
       lead_id: id,
