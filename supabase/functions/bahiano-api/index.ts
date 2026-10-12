@@ -136,6 +136,8 @@ async function send(
   message: string,
   lead: any,
   actionKey?: string,
+  templateId?: string,
+  variables: Record<string, string> = {},
 ) {
   if (
     actionKey &&
@@ -147,6 +149,14 @@ async function send(
     ).length
   )
     return;
+  if (templateId) {
+    const settings = (await rows("business_settings", "?key=eq.automation_messages&select=value"))[0]?.value || {};
+    const template = settings[templateId];
+    if (typeof template === "string" && template.trim()) {
+      const values = { nome: String(lead.display_name || "cliente"), valor: lead.service === "documento" ? "R$ 150,00" : "R$ 350,00", documentos: requiredFor(lead).map(kind => "• " + docs[kind]).join("\n"), ...variables };
+      message = template.replace(/\{(\w+)\}/g, (match: string, key: string) => values[key as keyof typeof values] ?? match);
+    }
+  }
   if (lead.source === "demonstracao") {
     await insert("messages", {
       lead_id: lead.id,
@@ -235,6 +245,47 @@ function initial(lead: any) {
     .join(
       "\n",
     )}\n📱 Número de telefone\n📧 E-mail\n\n*Se quiser fazer o serviço agora e estiver de acordo com o valor, envie os documentos solicitados.*\n\nVamos acompanhar seu atendimento até a conclusão!`;
+}
+const automationRules = [
+  { id: "welcome_uber", title: "Boas-vindas · conta Uber", trigger: "Primeiro contato identificado como cadastro Uber", message: initial({service:"uber"}).replace("R$ 350,00","{valor}"), variables: ["nome","valor"] },
+  { id: "welcome_documento", title: "Boas-vindas · documento do carro", trigger: "Primeiro contato identificado como documento do carro", message: initial({service:"documento"}).replace("R$ 150,00","{valor}"), variables: ["nome","valor"] },
+  { id: "guidance_missing", title: "Solicitar documentos e e-mail", trigger: "Cliente responde ou pergunta sobre documentos e ainda há itens faltando", message: "Perfeito! Para continuar o atendimento, envie:\n{faltantes}\nEnvie uma foto nítida de cada lado. Se já enviou um arquivo sem identificação, informe o tipo e o lado.", variables:["nome","faltantes"] },
+  { id: "guidance_complete", title: "Itens recebidos", trigger: "Cliente pergunta sobre documentos e todos os itens já foram recebidos", message:"Recebemos os itens solicitados. O Baiano vai conferir os documentos antes de liberar a produção.", variables:["nome"] },
+  { id: "price", title: "Informar preço", trigger: "Cliente pergunta valor, preço, quanto custa", message:"O valor do serviço é {valor}. O pagamento acontece após a entrega do serviço contratado. O Baiano vai analisar os documentos antes de confirmar a viabilidade.", variables:["nome","valor"] },
+  { id: "human", title: "Atendimento humano", trigger: "Cliente pede atendente, pessoa ou atendimento humano; automação é pausada", message:"Certo! Vou encaminhar seu atendimento ao Baiano. Você pode continuar conversando por aqui.", variables:["nome"] },
+  { id: "media_invalid", title: "Arquivo não aceito", trigger: "Anexo não pode ser registrado ou formato não é aceito", message:"Não conseguimos registrar esse arquivo. Envie uma imagem JPG/PNG/WebP ou PDF de até 12 MB.", variables:["nome"] },
+  { id: "media_unknown", title: "Identificar tipo ou lado", trigger: "Bot recebe arquivo, mas não identifica com segurança", message:"Recebemos o arquivo, mas precisamos confirmar o tipo ou o lado. Informe se é CNH frente/verso, RG frente/verso, CRLV ou selfie. Se estiver desfocado, envie uma nova foto nítida.", variables:["nome"] },
+  { id: "media_identified", title: "Documento identificado", trigger: "Leitura do anexo identifica o tipo do documento", message:"Recebemos o arquivo! ✅ Identificamos: {documento}. Vamos conferir a legibilidade e os dados antes de validar.", variables:["nome","documento"] },
+  { id: "identify_reply", title: "Tipo informado pelo cliente", trigger: "Cliente identifica um único arquivo recente que estava sem tipo", message:"Obrigado! Identificamos o arquivo como {documento}. O Baiano ainda vai conferir a legibilidade e os dados.", variables:["nome","documento"] },
+  { id: "identify_unmatched", title: "Associar identificação ao arquivo", trigger: "Cliente informa um tipo, mas não há um único arquivo recente para associar", message:"Envie o arquivo junto da identificação do tipo e do lado, para associarmos corretamente ao seu documento.", variables:["nome"] },
+  { id: "proof_received", title: "Comprovante recebido", trigger: "Bot identifica comprovante enviado pelo cliente; pagamento permanece pendente", message:"Recebemos o comprovante. ✅ O Baiano vai conferir o valor, o destinatário e o recebimento. O pagamento continua pendente até a confirmação.", variables:["nome","valor"] },
+  { id: "payment_pending", title: "Pagamento em conferência", trigger: "Cliente diz que pagou e já existe comprovante aguardando conferência", message:"O comprovante está aguardando conferência. O Baiano vai confirmar o recebimento; o pagamento continua pendente até essa confirmação.", variables:["nome","valor"] },
+  { id: "payment_missing", title: "Solicitar comprovante", trigger: "Cliente diz que pagou, mas não enviou comprovante", message:"Recebemos sua informação sobre o pagamento. Envie o comprovante legível para o Baiano conferir. O pagamento continua pendente até a confirmação.", variables:["nome","valor"] },
+  { id: "missing_manual", title: "Lembrete de itens faltantes", trigger: "Você clica em solicitar documentos faltantes no atendimento", message:"Recebemos os itens enviados. Para continuar, ainda precisamos de: {faltantes}. Se algum arquivo foi rejeitado, envie uma nova versão nítida.", variables:["nome","faltantes"] },
+  { id: "production", title: "Produção iniciada", trigger: "Documentos e cadastro são conferidos; atendimento avança para produção", message:"Perfeito! ✅ Recebemos todos os seus documentos.\n\nVamos iniciar a produção do seu serviço o mais rápido possível. 🚗\n\nAssim que finalizarmos, vou te enviar uma mensagem para combinarmos a entrega do seu serviço por videochamada.\n\nObrigado pela confiança! 🤝", variables:["nome","valor"] },
+  { id: "finish", title: "Serviço finalizado", trigger: "Você finaliza o serviço no Kanban; cliente é convidado para videochamada", message:"Olá! ✅ Seu serviço está finalizado. Por favor, ligue para o Baiano aqui pelo WhatsApp para combinar a entrega por videochamada. O pagamento acontece somente após a entrega, conforme combinado.", variables:["nome","valor"] },
+];
+async function automationSettings(req: Request) {
+  if (!await checkAdmin(req)) return response({error:"Não autorizado"},401);
+  if (!["GET","POST"].includes(req.method)) return response({error:"Método inválido"},405);
+  const settings = (await rows("business_settings","?key=eq.automation_messages&select=value,updated_at"))[0];
+  if (!settings) return response({error:"Configuração de automação indisponível"},503);
+  if (req.method === "GET") return response({rules:automationRules.map(rule=>({...rule,message:settings.value[rule.id] || rule.message,default_message:rule.message,customized:typeof settings.value[rule.id]==="string"})),revision:settings.updated_at});
+  const input = await req.json().catch(()=>null);
+  const rule = automationRules.find(rule=>rule.id===input?.id);
+  if (!rule) return response({error:"Gatilho inválido"},400);
+  const message = typeof input.message === "string" ? input.message.trim() : "";
+  if (input.reset !== true && (!message || message.length>3000)) return response({error:"Use uma mensagem de 1 a 3000 caracteres"},400);
+  if (input.reset !== true && [...message.matchAll(/\{([^{}]+)\}/g)].some(match=>!rule.variables.includes(match[1]))) return response({error:"Use apenas os campos disponíveis neste gatilho"},400);
+  if (input.revision !== settings.updated_at) return response({error:"A configuração mudou em outra janela. Atualize antes de salvar."},409);
+  const next = {...settings.value};
+  if (input.reset === true) delete next[rule.id]; else next[rule.id]=message;
+  const revision = new Date().toISOString();
+  const r = await fetch(up("business_settings","?key=eq.automation_messages&updated_at=eq."+encodeURIComponent(settings.updated_at)), {method:"PATCH",headers:{...apiHeaders(),Prefer:"return=representation"},body:JSON.stringify({value:next,updated_at:revision}),signal:AbortSignal.timeout(10000)});
+  if (!r.ok) return response({error:"Não foi possível salvar a mensagem"},503);
+  const saved=await r.json();
+  if (!saved.length) return response({error:"A configuração mudou. Atualize antes de salvar."},409);
+  return response({ok:true,revision:saved[0].updated_at});
 }
 function docType(s: string) {
   const x = s.toLowerCase();
@@ -488,16 +539,16 @@ async function webhook(body: any) {
       proof_received_at: now,
     });
   if (p.hasMedia && !uploaded && !lead.automation_paused && await botOn(chat)) {
-    await send(chat,"Não conseguimos registrar esse arquivo. Envie uma imagem JPG/PNG/WebP ou PDF de até 12 MB.",lead,"receipt:"+mid);
+    await send(chat,"Não conseguimos registrar esse arquivo. Envie uma imagem JPG/PNG/WebP ou PDF de até 12 MB.",lead,"receipt:"+mid,"media_invalid");
     return {lead_id:lead.id,stage:lead.stage,attachment_received:false};
   }
   if (proof && !lead.automation_paused && await botOn(chat)) {
-    await send(chat, "Recebemos o comprovante. ✅ O Baiano vai conferir o valor, o destinatário e o recebimento. O pagamento continua pendente até a confirmação.", lead, "proof-receipt:" + mid);
+    await send(chat, "Recebemos o comprovante. ✅ O Baiano vai conferir o valor, o destinatário e o recebimento. O pagamento continua pendente até a confirmação.", lead, "proof-receipt:" + mid,"proof_received");
     return { lead_id: lead.id, stage: lead.stage, payment_status: "proof_received" };
   }
   if (paymentReported && !lead.automation_paused && await botOn(chat)) {
     const receivedProof = await rows("documents",`?lead_id=eq.${lead.id}&kind=eq.comprovante&status=neq.rejected&storage_path=not.is.null&limit=1`);
-    await send(chat,receivedProof.length ? "O comprovante está aguardando conferência. O Baiano vai confirmar o recebimento; o pagamento continua pendente até essa confirmação." : "Recebemos sua informação sobre o pagamento. Envie o comprovante legível para o Baiano conferir. O pagamento continua pendente até a confirmação.",lead,"payment-report:"+mid);
+    await send(chat,receivedProof.length ? "O comprovante está aguardando conferência. O Baiano vai confirmar o recebimento; o pagamento continua pendente até essa confirmação." : "Recebemos sua informação sobre o pagamento. Envie o comprovante legível para o Baiano conferir. O pagamento continua pendente até a confirmação.",lead,"payment-report:"+mid,receivedProof.length ? "payment_pending" : "payment_missing");
     return {lead_id:lead.id,stage:lead.stage,payment_reported:true};
   }
   if (!lead.welcome_sent_at) {
@@ -507,7 +558,7 @@ async function webhook(body: any) {
       ["leads", "leads_campaign"].includes(lead.stage) &&
       (await botOn(chat))
     ) {
-      await send(chat, initial(lead), lead, "welcome:" + lead.id);
+      await send(chat, initial(lead), lead, "welcome:" + lead.id,lead.service === "documento" ? "welcome_documento" : "welcome_uber");
       await update("leads", lead.id, { welcome_sent_at: now });
     }
     return { lead_id: lead.id, stage: lead.stage, first: true };
@@ -535,6 +586,8 @@ async function webhook(body: any) {
       chat,
       "Certo! Vou encaminhar seu atendimento ao Baiano. Você pode continuar conversando por aqui.",
       lead,
+      "human:" + mid,
+      "human",
     );
   } else if (p.hasMedia) {
     await send(
@@ -548,23 +601,25 @@ async function webhook(body: any) {
             : "Recebemos o arquivo! ✅ Identificamos: " + (docs[uploaded.kind] || uploaded.kind) + ". Vamos conferir a legibilidade e os dados antes de validar.",
       lead,
       "receipt:" + mid,
+      !uploaded ? "media_invalid" : uploaded.kind === "comprovante" ? "proof_received" : uploaded.kind === "outro" ? "media_unknown" : "media_identified",
+      {documento: uploaded ? (docs[uploaded.kind] || uploaded.kind) : ""},
     );
   } else if (!p.hasMedia && proposed !== "outro" && proposed !== "comprovante") {
     const unknown = await rows("documents", `?lead_id=eq.${lead.id}&kind=eq.outro&status=eq.received&order=received_at.desc&limit=2`);
     if (unknown.length === 1 && Date.now() - Date.parse(unknown[0].received_at) < 10 * 60 * 1000) {
       await update("documents", unknown[0].id, { kind: proposed, identification_method: "message_followup", identification_confidence: 0, identification_note: "Tipo informado em mensagem posterior. Ainda exige conferência." });
-      await send(chat, "Obrigado! Identificamos o arquivo como " + (docs[proposed] || proposed) + ". O Baiano ainda vai conferir a legibilidade e os dados.", lead, "identify-reply:" + mid);
+      await send(chat, "Obrigado! Identificamos o arquivo como " + (docs[proposed] || proposed) + ". O Baiano ainda vai conferir a legibilidade e os dados.", lead, "identify-reply:" + mid,"identify_reply",{documento:docs[proposed] || proposed});
     } else {
-      await send(chat, "Envie o arquivo junto da identificação do tipo e do lado, para associarmos corretamente ao seu documento.", lead, "identify-reply:" + mid);
+      await send(chat, "Envie o arquivo junto da identificação do tipo e do lado, para associarmos corretamente ao seu documento.", lead, "identify-reply:" + mid,"identify_unmatched");
     }
   } else if (firstReply || email || /documentos?|enviar|faltando/i.test(message)) {
     const existingDocs = await rows("documents", `?lead_id=eq.${lead.id}&select=kind,status`);
     const missing = requiredFor(lead).filter(kind => !existingDocs.some(d => d.kind === kind && d.status !== "rejected"));
     const list = missing.map(kind => "• " + docs[kind]);
     if (!lead.email) list.push("• E-mail");
-    await send(chat, list.length ? "Perfeito! Para continuar o atendimento, envie:\n" + list.join("\n") + "\nEnvie uma foto nítida de cada lado. Se já enviou um arquivo sem identificação, informe o tipo e o lado." : "Recebemos os itens solicitados. O Baiano vai conferir os documentos antes de liberar a produção.", lead, "guidance:" + mid);
+    await send(chat, list.length ? "Perfeito! Para continuar o atendimento, envie:\n" + list.join("\n") + "\nEnvie uma foto nítida de cada lado. Se já enviou um arquivo sem identificação, informe o tipo e o lado." : "Recebemos os itens solicitados. O Baiano vai conferir os documentos antes de liberar a produção.", lead, "guidance:" + mid,list.length ? "guidance_missing" : "guidance_complete",{faltantes:list.join("\n")});
   } else if (/valor|pre[cç]o|quanto|custa/i.test(message)) {
-    await send(chat, "O valor do serviço é " + (lead.service === "documento" ? "R$ 150,00" : "R$ 350,00") + ". O pagamento acontece após a entrega do serviço contratado. O Baiano vai analisar os documentos antes de confirmar a viabilidade.", lead, "price:" + mid);
+    await send(chat, "O valor do serviço é " + (lead.service === "documento" ? "R$ 150,00" : "R$ 350,00") + ". O pagamento acontece após a entrega do serviço contratado. O Baiano vai analisar os documentos antes de confirmar a viabilidade.", lead, "price:" + mid,"price");
   }
   return { lead_id: lead.id, stage: lead.stage };
 }
@@ -727,6 +782,9 @@ async function admin(req: Request, path: string) {
         missing.join(", ") +
         ". Se algum arquivo foi rejeitado, envie uma nova versão nítida.",
       lead,
+      undefined,
+      "missing_manual",
+      {faltantes:missing.join(", ")},
     );
     return response({ ok: true, missing });
   }
@@ -828,6 +886,7 @@ async function admin(req: Request, path: string) {
       "Perfeito! ✅ Recebemos todos os seus documentos.\n\nVamos iniciar a produção do seu serviço o mais rápido possível. 🚗\n\nAssim que finalizarmos, vou te enviar uma mensagem para combinarmos a entrega do seu serviço por videochamada.\n\nObrigado pela confiança! 🤝",
       lead,
       "production:" + lead.id,
+      "production",
     );
     await update("leads", id, {
       stage: "producao",
@@ -852,6 +911,7 @@ async function admin(req: Request, path: string) {
       "Olá! ✅ Seu serviço está finalizado. Por favor, ligue para o Baiano aqui pelo WhatsApp para combinar a entrega por videochamada. O pagamento acontece somente após a entrega, conforme combinado.",
       lead,
       "finish:" + lead.id,
+      "finish",
     );
     await update("leads", id, {
       stage: "finalizados",
@@ -1083,6 +1143,9 @@ Deno.serve(async (req) => {
   if (p === "/pixel.js" && req.method === "GET") {
     const script = (globalThis as any).BahianoPixelScript;
     try {return new Response(typeof script === "function" ? await script() : "/* indisponível */", {headers:{"content-type":"application/javascript", "cache-control":"no-store",...cors}});} catch {return new Response("/* Pixel temporariamente indisponível */",{status:503,headers:{"content-type":"application/javascript",...cors}});}
+  }
+  if (p === "/admin/automation") {
+    try { return await automationSettings(req); } catch { return response({error:"Não foi possível acessar a automação"},503); }
   }
   if (p.startsWith("/admin/meta/")) {
     try {

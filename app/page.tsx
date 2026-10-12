@@ -39,9 +39,10 @@ import { zipSync } from "fflate";
 import WhatsappPanel from "./whatsapp-panel";
 import ServicePerformance from "./service-performance";
 import SettingsPanel from "./settings-panel";
+import AutomationPanel from "./automation-panel";
 import DocumentPreview from "./document-preview";
 
-type Section = "dashboard" | "kanban" | "settings";
+type Section = "dashboard" | "kanban" | "settings" | "automation";
 const docLabels: Record<string, string> = {
   cnh_frente: "CNH — frente",
   cnh_verso: "CNH — verso",
@@ -636,6 +637,7 @@ export default function Home() {
           >
             <Archive size={19} /> Kanban
           </button>
+          <button className={section === "automation" ? "navItem active" : "navItem"} onClick={() => setSection("automation")}><MessageCircle size={19} /> Automação</button>
         </nav>
         <div className="sidebarFoot">
           <div className="online">
@@ -654,12 +656,12 @@ export default function Home() {
         <header className="header">
           <div>
             <h1>
-              {section === "dashboard" ? "Dashboard" : section === "settings" ? "Configurações" : "Kanban de Atendimentos"}
+              {section === "dashboard" ? "Dashboard" : section === "settings" ? "Configurações" : section === "automation" ? "Automação" : "Kanban de Atendimentos"}
             </h1>
             <p>
               {section === "dashboard"
                 ? `Recebimentos de ${month.split("-").reverse().join("/")}. Histórico preservado; pendências de todos os meses.`
-                : section === "settings" ? "Gerencie sua conta e integrações." : "Acompanhe seus clientes e produções em um só lugar."}
+                : section === "automation" ? "Edite as mensagens enviadas em cada momento do atendimento." : section === "settings" ? "Gerencie sua conta e integrações." : "Acompanhe seus clientes e produções em um só lugar."}
             </p>
           </div>
           {section === "kanban" && (
@@ -699,7 +701,7 @@ export default function Home() {
             <button onClick={() => setNotice("")}>×</button>
           </div>
         )}
-        {section === "settings" ? <SettingsPanel/> : section === "dashboard" ? (
+        {section === "automation" ? <AutomationPanel/> : section === "settings" ? <SettingsPanel/> : section === "dashboard" ? (
           <div className="dashboard">
             <WhatsappPanel />
             <div className="metrics">

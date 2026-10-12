@@ -129,8 +129,8 @@ async function fetchMock(input, init = {}) {
   }
   throw Error("Unexpected method " + init.method);
 }
-vm.runInNewContext(
-  js.outputText,
+const automationSend = vm.runInNewContext(
+  js.outputText + "\n;send;",
   {
     BahianoReadDocument: async () => ocrResult,
     Deno: {
@@ -686,3 +686,26 @@ assert.equal((await whatsappRequest("session","GET")).status,401,"Missing owner 
 env.BAHIANO_ADMIN_USER_ID=originalAuth.id;
 assert.equal((await handler(new Request("https://api.example/admin/meta/status"))).status,401);
 console.log("PASS stable owner identity, email change, matching-email impersonation rejection and protected Meta route.");
+
+// Exercise the real template resolver and protected configuration route.
+tables.business_settings.push({key:"automation_messages",value:{},updated_at:"2026-10-11T00:00:00.000Z"});
+const readAutomation = () => handler(new Request("https://api.example/admin/automation",{headers:{authorization:"Bearer good"}})).then(r=>r.json());
+assert.equal((await handler(new Request("https://api.example/admin/automation"))).status,401);
+let configuration=await readAutomation();assert.equal(configuration.rules.length,17);
+const sampleVariables={nome:"Cliente Teste",valor:"R$ 350,00",faltantes:"CNH frente",documento:"RG verso"};
+const demoTemplateLead={id:"template-lead",contact_id:"template-contact",source:"demonstracao",service:"uber",display_name:sampleVariables.nome};
+for(const rule of configuration.rules){
+ const message="EDITADO "+rule.id+" "+rule.variables.map(name=>"{"+name+"}").join(" ");
+ let saved=await req("admin/automation",{id:rule.id,message,revision:configuration.revision},{authorization:"Bearer good"});assert.equal(saved.ok,true);
+ configuration=await readAutomation();assert.equal(configuration.rules.find(item=>item.id===rule.id).message,message);
+ const before=outbound.length;
+ await automationSend("test@demo.invalid","DEFAULT",demoTemplateLead,"template-"+rule.id,rule.id,{faltantes:sampleVariables.faltantes,documento:sampleVariables.documento});
+ const expected=message.replace(/\{(\w+)\}/g,(_,key)=>sampleVariables[key]);assert.equal(tables.messages.at(-1).body,expected);assert.equal(outbound.length,before);
+ saved=await req("admin/automation",{id:rule.id,message:"BAD {token}",revision:configuration.revision},{authorization:"Bearer good"});assert.match(saved.error,/campos disponíveis/);
+ saved=await req("admin/automation",{id:rule.id,message:"OK",revision:"old"},{authorization:"Bearer good"});assert.match(saved.error,/outra janela/);
+ saved=await req("admin/automation",{id:rule.id,reset:true,revision:configuration.revision},{authorization:"Bearer good"});assert.equal(saved.ok,true);
+ configuration=await readAutomation();assert.equal(configuration.rules.find(item=>item.id===rule.id).customized,false);
+}
+assert.match((await req("admin/automation",{id:"invalid",message:"bad"},{authorization:"Bearer good"})).error,/Gatilho/);
+assert.match((await req("admin/automation",{id:"price",message:" ",revision:configuration.revision},{authorization:"Bearer good"})).error,/3000/);
+console.log("PASS: all 17 automation templates save, substitute variables, persist, restore defaults, reject unknown fields/stale revisions and never send demo messages externally.");
