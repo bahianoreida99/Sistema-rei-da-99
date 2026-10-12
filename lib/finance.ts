@@ -1,4 +1,8 @@
 import type { Lead } from "./supabase";
+export const financialMonth = (date: Date = new Date()) => {
+  const parts = new Intl.DateTimeFormat("en", { timeZone: "America/Sao_Paulo", year: "numeric", month: "2-digit" }).formatToParts(date);
+  return parts.find(p => p.type === "year")!.value + "-" + parts.find(p => p.type === "month")!.value;
+};
 export interface DocumentSplit {
   bahiano_cents: number | null;
   campaign_cents: number | null;
@@ -6,12 +10,13 @@ export interface DocumentSplit {
 export function finance(
   leads: Lead[],
   split: DocumentSplit = { bahiano_cents: 10000, campaign_cents: 5000 },
+  month?: string,
 ) {
   const paid = leads.filter(
     (l) =>
       l.payment_status === "confirmed" &&
       Boolean(l.delivered_at) &&
-      l.stage === "pagos",
+      l.stage === "pagos" && (!month || Boolean(l.paid_at && financialMonth(new Date(l.paid_at)) === month)),
   );
   const outstanding = leads.filter(
     (l) => l.stage === "finalizados" && l.payment_status !== "confirmed",

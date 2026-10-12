@@ -63,3 +63,11 @@ assert.equal(result.campaign, 0);
 console.log(
   "PASS: confirmed revenue, delivery requirement, pending proof, campaign attribution, document split configuration and invalid totals.",
 );
+assert.equal(exports.financialMonth(new Date("2026-11-01T02:59:59Z")), "2026-10");
+assert.equal(exports.financialMonth(new Date("2026-11-01T03:00:00Z")), "2026-11");
+const history = [{ ...base, paid_at: "2026-10-31T23:00:00-03:00" }, { ...document, paid_at: "2026-11-01T00:00:00-03:00" }];
+assert.equal(exports.finance(history, undefined, "2026-10").received, 35000);
+assert.equal(exports.finance(history, undefined, "2026-11").received, 15000);
+assert.equal(exports.finance(history, undefined, "2026-12").commission, 0);
+assert.equal(exports.finance(history).received, 50000);
+console.log("PASS: monthly rollover in Sao Paulo preserves previous payments and unpaid balances.");

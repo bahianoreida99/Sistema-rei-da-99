@@ -34,11 +34,12 @@ import {
   type Doc,
   type Msg,
 } from "@/lib/supabase";
-import { finance, type DocumentSplit } from "@/lib/finance";
+import { finance, financialMonth, type DocumentSplit } from "@/lib/finance";
 import { zipSync } from "fflate";
 import WhatsappPanel from "./whatsapp-panel";
 import ServicePerformance from "./service-performance";
 import SettingsPanel from "./settings-panel";
+import DocumentPreview from "./document-preview";
 
 type Section = "dashboard" | "kanban" | "settings";
 const docLabels: Record<string, string> = {
@@ -82,6 +83,10 @@ export default function Home() {
     campaign_cents: 5000,
   });
   const [demo, setDemo] = useState(false);
+  const [previewDocument, setPreviewDocument] = useState<Doc | null>(null);
+  const closePreview = useCallback(() => setPreviewDocument(null), []);
+  const [month, setMonth] = useState(() => financialMonth());
+  useEffect(() => { const timer = setInterval(() => setMonth(financialMonth()), 10000); return () => clearInterval(timer); }, []);
   const viewLeads = useMemo(
     () => leads.filter((lead) => (lead.source === "demonstracao") === demo),
     [leads, demo],
@@ -211,7 +216,7 @@ export default function Home() {
     [viewLeads, filter, query],
   );
   const docsFor = (id: string) => documents.filter((d) => d.lead_id === id);
-  const totals = finance(viewLeads, documentSplit);
+  const totals = finance(viewLeads, documentSplit, month);
   const paid = totals.paid;
   const unpaid = totals.awaitingPayment;
   const paidUber = paid.filter((l) => l.service === "uber");
@@ -426,19 +431,7 @@ export default function Home() {
   };
   const viewDoc = async (d: Doc) => {
     if (!supabase || !d.storage_path) return;
-    const preview = window.open("about:blank", "_blank");
-    const { data, error } = await supabase.storage
-      .from("bahiano-documentos")
-      .createSignedUrl(d.storage_path, 60);
-    if (error || !data) {
-      preview?.close();
-      setNotice(error?.message || "Falha na visualização");
-      return;
-    }
-    if (preview) {
-      preview.opener = null;
-      preview.location.href = data.signedUrl;
-    } else setNotice("Permita abrir a visualização em uma nova janela.");
+    setPreviewDocument(d);
   };
   const downloadDoc = async (d: Doc) => {
     if (!supabase || !d.storage_path) return;
@@ -459,7 +452,7 @@ export default function Home() {
     try {
       const files: Record<string, Uint8Array> = {};
       const relevant = docsFor(active.id).filter(
-        (x) => x.storage_path && x.status !== "rejected",
+        (x) => x.storage_path,
       );
       if (!relevant.length)
         throw Error("Nenhum documento disponível para download");
@@ -665,7 +658,7 @@ export default function Home() {
             </h1>
             <p>
               {section === "dashboard"
-                ? "Resumo dos seus serviços e recebimentos."
+                ? `Recebimentos de ${month.split("-").reverse().join("/")}. Histórico preservado; pendências de todos os meses.`
                 : section === "settings" ? "Gerencie sua conta e integrações." : "Acompanhe seus clientes e produções em um só lugar."}
             </p>
           </div>
@@ -1030,31 +1023,11 @@ export default function Home() {
                           {d.identification_note && <small>{d.identification_note}</small>}
                           {
                             <div className="docVerify">
-                              <select
-                                aria-label="Tipo do documento"
-                                defaultValue={d.kind}
-                                id={"kind-" + d.id}
-                              >
-                                {Object.keys(docLabels).map((kind) => (
-                                  <option key={kind} value={kind}>
-                                    {docLabels[kind]}
-                                  </option>
-                                ))}
-                              </select>
                               <button
                                 type="button"
                                 disabled={busy === d.id}
                                 title="Validar documento"
-                                onClick={() => {
-                                  const el = document.getElementById(
-                                    "kind-" + d.id,
-                                  ) as HTMLSelectElement | null;
-                                  void validateDocument(
-                                    d,
-                                    el?.value || d.kind,
-                                    "verified",
-                                  );
-                                }}
+                                onClick={() => void validateDocument(d, d.kind, "verified")}
                               >
                                 <Check size={13} />
                               </button>
@@ -1232,6 +1205,7 @@ export default function Home() {
           </>
         )}
       </div>
+      {previewDocument && <DocumentPreview document={previewDocument} label={docLabels[previewDocument.kind] || previewDocument.kind} onClose={closePreview} />}
     </div>
   );
 }

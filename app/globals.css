@@ -1282,3 +1282,5 @@ select {
 @media(max-width: 800px) { .settingsGrid { grid-template-columns: 1fr; } }
 .eventPagination { display: flex; gap: 12px; align-items: center; margin-top: 15px; }
 .eventSent { color: #00874e; font-weight: 600; }
+
+.documentOverlay{position:fixed;inset:0;z-index:1000;background:#000b;display:flex;align-items:center;justify-content:center;padding:20px}.documentModal{background:#fff;color:#17212f;border-radius:16px;width:min(960px,100%);height:85vh;padding:16px;display:flex;flex-direction:column;gap:12px}.documentModal header{display:flex;justify-content:space-between;align-items:center;gap:12px}.documentModal h2{font-size:18px}.documentModal iframe{width:100%;flex:1;border:0}.documentModal img{width:100%;min-height:0;flex:1;object-fit:contain}.documentModal button{padding:10px;cursor:pointer}
