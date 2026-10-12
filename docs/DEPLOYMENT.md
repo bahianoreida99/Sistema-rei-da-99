@@ -26,6 +26,12 @@ O backend inclui o leitor local de imagens/PDFs, o modelo de português e depend
 
 Configure no serviço `bahiano-api`: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `WAHA_BASE_URL`, `WAHA_API_KEY`, `BAHIANO_WEBHOOK_TOKEN`, `PORT=3001`. `WEBHOOK_TOKEN` é aceito como alias da configuração anterior. Valores privados ficam somente nos secrets.
 
+Configure também `BAHIANO_ADMIN_USER_ID` com o UUID da conta proprietária. O frontend exige o mesmo UUID em `NEXT_PUBLIC_ADMIN_USER_ID`; esse identificador é público, mas a permissão depende do JWT validado e da conta confirmada no banco, nunca do valor informado por um visitante.
+
+Para Meta, `META_CONFIG_ENCRYPTION_KEY` contém 32 bytes aleatórios em base64. A chave permanece exclusiva do backend e deve ser preservada entre deployments/backups. Pixel, token cifrado, ativação e código de teste ficam em `meta_config`, sem acesso direto do navegador. `meta_events` permite apenas SELECT ao proprietário confirmado e participa de Realtime; alterações de situação são exclusivas do servidor. `META_GRAPH_VERSION` é opcional, com padrão `v26.0`.
+
+As migrações `20261011000700_meta_events.sql`, `20261011000800_admin_identity.sql` e `20261011000900_meta_realtime.sql` foram aplicadas. A configuração Auth foi sincronizada seletivamente: Site URL do painel, redirecionamentos e mínimo de 8 caracteres, mantendo as outras propriedades remotas. Execute `supabase config diff` antes de aplicar futuras alterações.
+
 `/health` retorna `configured`. HTTP 200 sozinho não comprova integração operacional. Aplique as novas migrations antes de conectar o webhook à API atual.
 
 ### WAHA

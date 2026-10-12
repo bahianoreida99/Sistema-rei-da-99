@@ -1268,3 +1268,17 @@ select {
   text-decoration: underline;
   font-size: 10px;
 }
+.settingsContent { display: grid; gap: 22px; }
+.settingsGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
+.settingsForm { display: grid; gap: 14px; margin: 20px 0; }
+.settingsForm label { display: grid; gap: 7px; font-size: 14px; color: #365267; }
+.settingsForm input:not([type=checkbox]) { width: 100%; min-width: 0; padding: 12px; border: 1px solid #d8e4df; border-radius: 8px; font: inherit; background: white; }
+.settingsForm .settingsCheckbox { display: flex; align-items: center; gap: 9px; }
+.pixelSnippet { overflow-wrap: anywhere; white-space: pre-wrap; padding: 14px; background: #f4f8f6; border-radius: 8px; }
+.eventTable { overflow-x: auto; }
+.eventTable table { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 13px; }
+.eventTable th, .eventTable td { text-align: left; padding: 12px; border-bottom: 1px solid #e5ece8; }
+.eventTable small { display: block; color: #a73737; margin-top: 5px; }
+@media(max-width: 800px) { .settingsGrid { grid-template-columns: 1fr; } }
+.eventPagination { display: flex; gap: 12px; align-items: center; margin-top: 15px; }
+.eventSent { color: #00874e; font-weight: 600; }

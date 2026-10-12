@@ -1,6 +1,10 @@
 import http from "node:http";
 import { readDocument } from "./document-reader.mjs";
+import { metaIntegration } from "./meta-integration.mjs";
 globalThis.BahianoReadDocument = readDocument;
+const meta = metaIntegration();
+globalThis.BahianoMetaRoute = meta.route;
+globalThis.BahianoPixelScript = meta.pixelScript;
 
 // Both Railway and Supabase run the same API, with a single webhook target.
 globalThis.Deno = {
@@ -17,6 +21,7 @@ globalThis.Deno = {
               headers: { "x-bahiano-webhook-token": webhookToken },
             }),
           );
+          await meta.flush();
         } catch {
           console.error("Webhook recovery unavailable");
         }

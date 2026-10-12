@@ -23,6 +23,8 @@ export default ts.config(
         setInterval: "readonly",
         clearInterval: "readonly",
         setTimeout: "readonly",
+        clearTimeout: "readonly",
+        fetch: "readonly",
         React: "readonly",
         Blob: "readonly",
         BlobPart: "readonly",

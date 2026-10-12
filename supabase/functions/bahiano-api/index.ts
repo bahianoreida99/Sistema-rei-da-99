@@ -13,7 +13,6 @@ const wahaUrl = (E.get("WAHA_BASE_URL") || "").replace(/\/$/, "");
 const wahaPublicUrl = (E.get("WAHA_PUBLIC_URL") || wahaUrl).replace(/\/$/, "");
 const wahaKey = E.get("WAHA_API_KEY") || "";
 const hookKey = E.get("BAHIANO_WEBHOOK_TOKEN") || E.get("WEBHOOK_TOKEN") || "";
-const adminEmail = "bahiano.reida99uber@gmail.com";
 const required = [
   "cnh_frente",
   "cnh_verso",
@@ -50,13 +49,14 @@ const apiHeaders = () => ({
 });
 const up = (t: string, q = "") => url + "/rest/v1/" + t + q;
 async function rows(t: string, q = ""): Promise<any[]> {
-  const r = await fetch(up(t, q), { headers: apiHeaders() });
+  const r = await fetch(up(t, q), { headers: apiHeaders(), signal: AbortSignal.timeout(10000) });
   if (!r.ok) throw Error(`Falha na leitura de ${t}: ${r.status}`);
   return await r.json();
 }
 async function insert(t: string, value: Record<string, unknown>): Promise<any> {
   const r = await fetch(up(t), {
     method: "POST",
+    signal: AbortSignal.timeout(10000),
     headers: { ...apiHeaders(), Prefer: "return=representation" },
     body: JSON.stringify(value),
   });
@@ -74,6 +74,7 @@ async function update(
 ): Promise<any> {
   const r = await fetch(up(t, `?id=eq.${encodeURIComponent(id)}`), {
     method: "PATCH",
+    signal: AbortSignal.timeout(10000),
     headers: { ...apiHeaders(), Prefer: "return=representation" },
     body: JSON.stringify({
       ...value,
@@ -105,7 +106,7 @@ async function checkAdmin(req: Request) {
   });
   if (!r.ok) return false;
   const u = await r.json();
-  return String(u.email || "").toLowerCase() === adminEmail &&
+  return Boolean(E.get("BAHIANO_ADMIN_USER_ID")) && u.id === E.get("BAHIANO_ADMIN_USER_ID") &&
     !!u.email_confirmed_at
     ? u
     : false;
@@ -161,6 +162,7 @@ async function send(
   if (!wahaUrl || !wahaKey) throw Error("WAHA não configurado");
   const r = await fetch(wahaUrl + "/api/sendText", {
     method: "POST",
+    signal: AbortSignal.timeout(15000),
     headers: { "Content-Type": "application/json", "X-Api-Key": wahaKey },
     body: JSON.stringify({ session: "default", chatId, text: message }),
   });
@@ -342,6 +344,7 @@ async function mediaUpload(p: any, lead: any, msg: any, kind: string) {
   const path = lead.id + "/" + msg.id + "." + ext;
   const x = await fetch(url + "/storage/v1/object/bahiano-documentos/" + path, {
     method: "POST",
+    signal: AbortSignal.timeout(20000),
     headers: {
       apikey: dbKey,
       Authorization: `Bearer ${dbKey}`,
@@ -477,19 +480,25 @@ async function webhook(body: any) {
   if (p.hasMedia) uploaded = await mediaUpload(p, lead, msg, proposed);
   const proof =
     lead.stage === "finalizados" &&
-    (uploaded?.kind === "comprovante" || (!p.hasMedia && proposed === "comprovante"));
-  if (
-    proof ||
-    (lead.stage === "finalizados" &&
-      /paguei|pix feito|pagamento realizado/i.test(message))
-  )
+    uploaded?.kind === "comprovante";
+  const paymentReported = lead.stage === "finalizados" && !p.hasMedia && /paguei|pix feito|pagamento realizado/i.test(message);
+  if (proof)
     await update("leads", lead.id, {
       payment_status: "proof_received",
       proof_received_at: now,
     });
+  if (p.hasMedia && !uploaded && !lead.automation_paused && await botOn(chat)) {
+    await send(chat,"Não conseguimos registrar esse arquivo. Envie uma imagem JPG/PNG/WebP ou PDF de até 12 MB.",lead,"receipt:"+mid);
+    return {lead_id:lead.id,stage:lead.stage,attachment_received:false};
+  }
   if (proof && !lead.automation_paused && await botOn(chat)) {
     await send(chat, "Recebemos o comprovante. ✅ O Baiano vai conferir o valor, o destinatário e o recebimento. O pagamento continua pendente até a confirmação.", lead, "proof-receipt:" + mid);
     return { lead_id: lead.id, stage: lead.stage, payment_status: "proof_received" };
+  }
+  if (paymentReported && !lead.automation_paused && await botOn(chat)) {
+    const receivedProof = await rows("documents",`?lead_id=eq.${lead.id}&kind=eq.comprovante&status=neq.rejected&storage_path=not.is.null&limit=1`);
+    await send(chat,receivedProof.length ? "O comprovante está aguardando conferência. O Baiano vai confirmar o recebimento; o pagamento continua pendente até essa confirmação." : "Recebemos sua informação sobre o pagamento. Envie o comprovante legível para o Baiano conferir. O pagamento continua pendente até a confirmação.",lead,"payment-report:"+mid);
+    return {lead_id:lead.id,stage:lead.stage,payment_reported:true};
   }
   if (!lead.welcome_sent_at) {
     if (
@@ -747,6 +756,7 @@ async function admin(req: Request, path: string) {
         { error: "Pagamento exige serviço finalizado e entregue" },
         409,
       );
+    if (!["uber","documento"].includes(lead.service) || lead.price_cents !== (lead.service === "uber" ? 35000 : 15000)) return response({error:"Revise o serviço e o valor contratado antes de confirmar o pagamento"},409);
     await update("leads", id, {
       stage: "pagos",
       payment_status: "confirmed",
@@ -767,6 +777,7 @@ async function admin(req: Request, path: string) {
         changes[field] = data[field]
           .trim()
           .slice(0, field === "notes" ? 3000 : 254);
+    if (changes.email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(changes.email))) return response({error:"Informe um e-mail válido para o cliente"},400);
     if (["uber", "documento"].includes(data.service)) {
       if (!["leads", "leads_campaign", "conversando"].includes(lead.stage))
         return response(
@@ -801,8 +812,8 @@ async function admin(req: Request, path: string) {
         { error: "Identifique o serviço antes de iniciar a produção" },
         409,
       );
-    if (!lead.email || !lead.phone)
-      return response({ error: "Telefone e e-mail são obrigatórios" }, 409);
+    if (!lead.email || !lead.phone || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(lead.email) || !/^\d{10,15}$/.test(String(lead.phone).replace(/\D/g,"")))
+      return response({ error: "Telefone e e-mail válidos são obrigatórios" }, 409);
     const missing = requiredFor(lead).filter((x) => !verified.has(x));
     if (missing.length)
       return response(
@@ -834,6 +845,8 @@ async function admin(req: Request, path: string) {
   if (path === "/admin/finish") {
     if (lead.stage !== "producao")
       return response({ error: "Não está em Produção" }, 409);
+    const reviewed = await rows("documents",`?lead_id=eq.${id}&status=eq.verified&select=kind`);
+    if (!requiredFor(lead).every(kind=>reviewed.some(document=>document.kind===kind))) return response({error:"Revise os documentos obrigatórios antes de finalizar o serviço"},409);
     await send(
       contact.chat_id,
       "Olá! ✅ Seu serviço está finalizado. Por favor, ligue para o Baiano aqui pelo WhatsApp para combinar a entrega por videochamada. O pagamento acontece somente após a entrega, conforme combinado.",
@@ -864,6 +877,7 @@ async function processWebhook(body: any) {
     return webhook(body);
   const claim = await fetch(up("rpc/bahiano_claim_event"), {
     method: "POST",
+    signal: AbortSignal.timeout(10000),
     headers: apiHeaders(),
     body: JSON.stringify({ p_event_id: id, p_payload: body }),
   });
@@ -876,6 +890,7 @@ async function processWebhook(body: any) {
       up("webhook_events", "?event_id=eq." + encodeURIComponent(id)),
       {
         method: "PATCH",
+        signal: AbortSignal.timeout(10000),
         headers: apiHeaders(),
         body: JSON.stringify({
           status,
@@ -1061,10 +1076,22 @@ Deno.serve(async (req) => {
         publicKey &&
         wahaUrl &&
         wahaKey &&
-        hookKey
+        hookKey && E.get("BAHIANO_ADMIN_USER_ID")
       ),
       bot_enabled: await botOn().catch(() => false),
     });
+  if (p === "/pixel.js" && req.method === "GET") {
+    const script = (globalThis as any).BahianoPixelScript;
+    try {return new Response(typeof script === "function" ? await script() : "/* indisponível */", {headers:{"content-type":"application/javascript", "cache-control":"no-store",...cors}});} catch {return new Response("/* Pixel temporariamente indisponível */",{status:503,headers:{"content-type":"application/javascript",...cors}});}
+  }
+  if (p.startsWith("/admin/meta/")) {
+    try {
+      if(!await checkAdmin(req))return response({error:"Não autorizado"},401);
+      const route=(globalThis as any).BahianoMetaRoute;
+      if(typeof route!=="function")return response({error:"Integração indisponível"},503);
+      const result=await route(req);return response(result,result.status||200);
+    }catch{return response({error:"Não foi possível acessar a integração Meta"},503);}
+  }
   if (p === "/internal/retry" && req.method === "POST") {
     if (
       !(await safeToken(

@@ -12,6 +12,18 @@ Painel Next.js com Dashboard inicial, Kanban de seis etapas e área integrada de
 
 Nenhuma senha administrativa é distribuída no código. Secrets ficam nas plataformas; .env.example contém somente configurações públicas.
 
+A autorização vincula a conta confirmada ao UUID permanente do proprietário. `NEXT_PUBLIC_ADMIN_USER_ID` é obrigatório no frontend e `BAHIANO_ADMIN_USER_ID` na API; um e-mail coincidente não concede acesso a outra identidade. O e-mail inicial pode ser alterado em **Configurações**, acima de Sair, sem alterar esse vínculo.
+
+## Configurações e Meta Ads
+
+Configurações reúne e-mail, nova senha/confirmar senha, Pixel/conjunto de dados, site, token da API de Conversões e código de Eventos de Teste. O token é criptografado com AES-256-GCM usando `META_CONFIG_ENCRYPTION_KEY` (32 bytes em base64, exclusivo do servidor) e nunca retorna ao navegador. Preserve essa chave ao publicar ou recuperar um backup.
+
+O banco registra Lead, Contact, DocumentReceived, DocumentVerified, ProductionStarted, ServiceCompleted, ServiceDelivered e Purchase. A compra exige pagamento confirmado após entrega. IDs estáveis permitem recuperação sem criar outra identidade de evento. Exemplos e contatos pessoais são excluídos. O histórico tem paginação e realtime somente para o proprietário; a tabela de credenciais continua exclusiva do servidor. Telefone/e-mail de correspondência seguem em SHA-256; documentos e textos de conversa não são enviados à Meta.
+
+O código de Pixel fornecido na tela registra PageView e WhatsAppClick no site público configurado; deve ser instalado nesse site após autorização de métricas. O painel não o carrega. A API usa a versão Graph configurável em `META_GRAPH_VERSION`, com padrão `v26.0`. O verde de conexão depende de acknowledgment real da Meta e é retirado após erro de entrega.
+
+Consulte o [relatório completo da revisão](docs/REVISAO-COMPLETA-2026-10-11.md) para evidências, instruções e limites da validação.
+
 ## Executar e validar
 
 Use Node.js 22 ou superior. Copie .env.example para .env.local.

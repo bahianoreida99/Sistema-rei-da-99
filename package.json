@@ -7,9 +7,9 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test": "node tests/edge-smoke.mjs && node tests/finance.mjs",
+    "test": "node tests/edge-smoke.mjs && node tests/finance.mjs && node tests/meta-integration.mjs",
     "test:documents": "node tests/document-reader.mjs",
-    "lint": "eslint app lib scripts backend/server.mjs",
+    "lint": "eslint app lib scripts backend/*.mjs",
     "build:api": "node scripts/build-api.mjs",
     "start:api": "node backend/server.mjs",
     "typecheck:api": "tsc -p tsconfig.api.json"

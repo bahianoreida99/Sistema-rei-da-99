@@ -2,3 +2,8 @@
 verify_jwt = false
 # Endpoints /admin/* verify the signed Supabase user JWT themselves.
 # Endpoint /webhook/waha verifies BAHIANO_WEBHOOK_TOKEN.
+
+[auth]
+site_url = "https://bahiano-painel-production.up.railway.app"
+additional_redirect_urls = ["https://bahiano-painel-production.up.railway.app/**"]
+minimum_password_length = 8

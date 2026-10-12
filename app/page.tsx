@@ -21,11 +21,13 @@ import {
   Send,
   ShieldCheck,
   Wallet,
+  Settings,
 } from "lucide-react";
 import {
   supabase,
   configured,
   ADMIN_EMAIL,
+  isAdmin,
   stages,
   currency,
   type Lead,
@@ -36,8 +38,9 @@ import { finance, type DocumentSplit } from "@/lib/finance";
 import { zipSync } from "fflate";
 import WhatsappPanel from "./whatsapp-panel";
 import ServicePerformance from "./service-performance";
+import SettingsPanel from "./settings-panel";
 
-type Section = "dashboard" | "kanban";
+type Section = "dashboard" | "kanban" | "settings";
 const docLabels: Record<string, string> = {
   cnh_frente: "CNH — frente",
   cnh_verso: "CNH — verso",
@@ -84,10 +87,12 @@ export default function Home() {
     [leads, demo],
   );
   const selectedRef = useRef<string | null>(null);
+  const refreshGeneration = useRef(0);
   selectedRef.current = selected;
   const active = leads.find((l) => l.id === selected) || null;
   const refresh = useCallback(async () => {
     if (!supabase) return;
+    const generation = ++refreshGeneration.current;
     const [l, d, settings] = await Promise.all([
       supabase
         .from("leads")
@@ -103,7 +108,8 @@ export default function Home() {
         .select("key,value")
         .eq("key", "commission_documento"),
     ]);
-    if (l.error) setNotice(l.error.message);
+    if (generation !== refreshGeneration.current) return;
+    if (l.error || d.error || settings.error) setNotice(l.error?.message || d.error?.message || settings.error?.message || "Não foi possível atualizar os dados");
     else setLeads(l.data || []);
     for (const setting of settings.data || []) {
       if (setting.key === "commission_documento")
@@ -119,31 +125,35 @@ export default function Home() {
       .eq("lead_id", id)
       .order("received_at", { ascending: false })
       .limit(300);
+    if (r.error) setNotice("Não foi possível atualizar a conversa. Tente novamente.");
     if (!r.error && selectedRef.current === id)
       setMessages([...(r.data || [])].reverse());
   }, []);
   useEffect(() => {
     let mounted = true;
     const init = async () => {
+      let remembered: string | null = null;
+      try { remembered = localStorage.getItem("bahiano-login-email"); } catch { /* Storage may be unavailable in private contexts. */ }
+      if (remembered && mounted) setEmail(remembered);
       if (!supabase) {
         setReady(true);
         return;
       }
       const { data } = await supabase.auth.getUser();
       if (mounted) {
+        if (isAdmin(data.user) && data.user?.email) {setEmail(data.user.email);try {localStorage.setItem("bahiano-login-email",data.user.email);} catch { /* Optional preference. */ }}
         setAuthed(
-          lower(data.user?.email) === ADMIN_EMAIL &&
-            Boolean(data.user?.email_confirmed_at),
+          isAdmin(data.user),
         );
         setReady(true);
       }
     };
     void init();
     const subscription = supabase?.auth.onAuthStateChange((_e, session) => {
+      if (mounted && isAdmin(session?.user) && session?.user.email) {setEmail(session.user.email);try {localStorage.setItem("bahiano-login-email",session.user.email);} catch { /* Optional preference. */ }}
       if (mounted)
         setAuthed(
-          lower(session?.user?.email) === ADMIN_EMAIL &&
-            Boolean(session?.user?.email_confirmed_at),
+          isAdmin(session?.user),
         );
     });
     return () => {
@@ -220,6 +230,7 @@ export default function Home() {
     if (!backend || !data.session) throw Error("API ou login não configurado");
     const r = await fetch(backend + "/admin/" + action, {
       method: "POST",
+      signal: AbortSignal.timeout(15000),
       headers: {
         "content-type": "application/json",
         authorization: "Bearer " + data.session.access_token,
@@ -300,6 +311,7 @@ export default function Home() {
       if (!backend || !key) throw Error("API ainda não configurada");
       const r = await fetch(backend + "/admin/finish", {
         method: "POST",
+      signal: AbortSignal.timeout(15000),
         headers: {
           "Content-Type": "application/json",
           Authorization: "Bearer " + key,
@@ -364,7 +376,7 @@ export default function Home() {
         ? ["rg_frente", "rg_verso", "crlv"]
         : baseDocs;
   const canGoProduction = (l: Lead) =>
-    Boolean(l.email && l.phone) &&
+    Boolean(l.email && l.phone && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(l.email) && /^\d{10,15}$/.test(l.phone.replace(/\D/g,""))) &&
     requiredDocs(l).length > 0 &&
     requiredDocs(l).every((kind) =>
       documents.some(
@@ -374,7 +386,7 @@ export default function Home() {
   const moveToProduction = async (l: Lead) => {
     if (!canGoProduction(l)) {
       setNotice(
-        "Ainda faltam documentos verificados. Confira cada item antes de avançar.",
+        "Confira os documentos, o telefone e o e-mail do cliente antes de avançar.",
       );
       return;
     }
@@ -387,6 +399,7 @@ export default function Home() {
       if (!token || !backend) throw Error("API ou login não configurado");
       const r = await fetch(backend + "/admin/production", {
         method: "POST",
+      signal: AbortSignal.timeout(15000),
         headers: {
           "content-type": "application/json",
           authorization: "Bearer " + token,
@@ -491,6 +504,7 @@ export default function Home() {
         throw Error("API ainda não configurada");
       const r = await fetch(backend + "/admin/send", {
         method: "POST",
+      signal: AbortSignal.timeout(15000),
         headers: {
           "Content-Type": "application/json",
           Authorization: "Bearer " + token.data.session.access_token,
@@ -517,6 +531,7 @@ export default function Home() {
         throw Error("API ou login não configurado");
       const response = await fetch(backend + "/admin/classify", {
         method: "POST",
+      signal: AbortSignal.timeout(15000),
         headers: {
           "content-type": "application/json",
           authorization: "Bearer " + data.session.access_token,
@@ -537,10 +552,6 @@ export default function Home() {
     setLoginError("");
     if (!supabase) return;
     const loginEmail = email.trim().toLowerCase();
-    if (loginEmail !== ADMIN_EMAIL) {
-      setLoginError("Acesso restrito ao administrador do Bahiano.");
-      return;
-    }
     const { data, error } = await supabase.auth.signInWithPassword({
       email: loginEmail,
       password,
@@ -553,10 +564,10 @@ export default function Home() {
             ? "E-mail ou senha incorretos. Confira os dados e tente novamente."
             : "Não foi possível entrar. Tente novamente em instantes.",
       );
-    } else if (!data.user?.email_confirmed_at) {
-      await supabase.auth.signOut();
+    } else if (!isAdmin(data.user)) {
+      await supabase.auth.signOut({scope:"local"});
       setLoginError(
-        "Confirme seu e-mail pelo link enviado pelo Supabase antes de entrar.",
+        data.user?.email_confirmed_at ? "Esta conta não está autorizada a acessar o painel." : "Confirme seu e-mail pelo link enviado pelo Supabase antes de entrar.",
       );
     }
   };
@@ -637,6 +648,7 @@ export default function Home() {
           <div className="online">
             <MessageCircle size={20} /> Sistema de atendimento
           </div>
+          <button className={section === "settings" ? "navItem active" : "navItem"} onClick={() => setSection("settings")}><Settings size={19}/> Configurações</button>
           <button
             className="navItem"
             onClick={async () => await supabase?.auth.signOut()}
@@ -649,12 +661,12 @@ export default function Home() {
         <header className="header">
           <div>
             <h1>
-              {section === "dashboard" ? "Dashboard" : "Kanban de Atendimentos"}
+              {section === "dashboard" ? "Dashboard" : section === "settings" ? "Configurações" : "Kanban de Atendimentos"}
             </h1>
             <p>
               {section === "dashboard"
                 ? "Resumo dos seus serviços e recebimentos."
-                : "Acompanhe seus clientes e produções em um só lugar."}
+                : section === "settings" ? "Gerencie sua conta e integrações." : "Acompanhe seus clientes e produções em um só lugar."}
             </p>
           </div>
           {section === "kanban" && (
@@ -682,19 +694,19 @@ export default function Home() {
             </div>
           )}
         </header>
-        <div className="notice">
+        {section !== "settings" && <div className="notice">
           <span>{demo ? "Demonstração: clientes e valores fictícios para apresentação." : "Exibindo apenas atendimentos reais."}</span>
           <button className="smallAction" onClick={() => { setDemo(!demo); setSelected(null); setQuery(""); }}>
             {demo ? "Voltar aos dados reais" : "Ver exemplos"}
           </button>
-        </div>
+        </div>}
         {notice && (
           <div className="notice" role="status">
             {notice}
             <button onClick={() => setNotice("")}>×</button>
           </div>
         )}
-        {section === "dashboard" ? (
+        {section === "settings" ? <SettingsPanel/> : section === "dashboard" ? (
           <div className="dashboard">
             <WhatsappPanel />
             <div className="metrics">

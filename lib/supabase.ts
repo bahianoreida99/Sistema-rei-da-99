@@ -1,13 +1,17 @@
 import { createClient } from "@supabase/supabase-js";
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
-export const configured = Boolean(url && key);
+export const ADMIN_USER_ID = process.env.NEXT_PUBLIC_ADMIN_USER_ID || "";
+export const configured = Boolean(url && key && ADMIN_USER_ID);
 export const supabase = configured
   ? createClient(url, key, {
       auth: { persistSession: true, autoRefreshToken: true },
+      global: { fetch: (input, init) => fetch(input, { ...init, signal: AbortSignal.any([...(init?.signal ? [init.signal] : []), AbortSignal.timeout(15000)]) }) },
     })
   : null;
 export const ADMIN_EMAIL = "bahiano.reida99uber@gmail.com";
+export const isAdmin = (user: { id?: string; email?: string; email_confirmed_at?: string | null } | null | undefined) =>
+  Boolean(user?.email_confirmed_at && ADMIN_USER_ID && user.id === ADMIN_USER_ID);
 export type Stage =
   | "leads"
   | "leads_campaign"

@@ -37,6 +37,7 @@ const outbound = [];
 let handler;
 let failSend = false;
 let ocrResult = { text: "", confidence: 0, method: "unavailable" };
+let authUser = { id: "00000000-0000-4000-8000-000000000001", email: "bahiano.reida99uber@gmail.com", email_confirmed_at: "2026-10-01T00:00:00Z" };
 let whatsappState = "SCAN_QR_CODE";
 let failLogout = false;
 const sessionActions = [];
@@ -48,6 +49,7 @@ const env = {
   WAHA_PUBLIC_URL: "https://waha-public.example",
   WAHA_API_KEY: "test_waha",
   BAHIANO_WEBHOOK_TOKEN: "private_token",
+  BAHIANO_ADMIN_USER_ID: "00000000-0000-4000-8000-000000000001",
 };
 const fakeJson = (body, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -91,10 +93,7 @@ async function fetchMock(input, init = {}) {
     throw Error("Unexpected outbound " + u.origin);
   if (u.pathname === "/auth/v1/user")
     return init.headers?.Authorization === "Bearer good"
-      ? fakeJson({
-          email: "bahiano.reida99uber@gmail.com",
-          email_confirmed_at: "2026-10-01T00:00:00Z",
-        })
+      ? fakeJson(authUser)
       : fakeJson({ error: "nope" }, 401);
   if (u.pathname.startsWith("/storage/v1/object/"))
     return fakeJson({ Key: "test" });
@@ -442,6 +441,7 @@ r = await req(
 );
 assert.ok(r.missing.includes("CNH frente"));
 // WAHA failure must keep administrative finalization pending.
+for (const kind of ["cnh_frente","cnh_verso","rg_frente","rg_verso","crlv","selfie"]) tables.documents.push({id:crypto.randomUUID(),lead_id:direct.id,kind,status:"verified"});
 direct.stage = "producao";
 failSend = true;
 r = await req(
@@ -625,6 +625,7 @@ for (const service of ["uber", "documento"]) {
   assert.equal(journey.stage, "leads");assert.ok(journey.welcome_sent_at);
   await req("webhook/waha", incoming("reply", "Concordo. Meu email e teste@example.invalid"), hookHeaders);
   assert.equal(journey.stage, "conversando");assert.equal(journey.email, "teste@example.invalid");
+  r=await req("admin/details",{lead_id:journey.id,email:"invalid-email"},{authorization:"Bearer good"});assert.match(r.error,/válido/);assert.equal(journey.email,"teste@example.invalid");
   assert.match(outbound.at(-1).text,/Para continuar/);
   ocrResult = { text: "Paisagem com arvores e flores sem documento", confidence: 94, method: "image_ocr" };
   await req("webhook/waha", incoming("unknown", "", true), hookHeaders);
@@ -644,8 +645,17 @@ for (const service of ["uber", "documento"]) {
     assert.equal(journey.stage, index === requiredKinds.length - 1 ? "producao" : "conversando");
   }
   if(service === "uber") await req("admin/pause",{lead_id:journey.id,paused:true},{authorization:"Bearer good"});
+  const revoked=tables.documents.find(document=>document.lead_id===journey.id&&document.kind==="crlv");revoked.status="rejected";
+  r=await req("admin/finish",{lead_id:journey.id},{authorization:"Bearer good"});assert.match(r.error,/documentos obrigatórios/);assert.equal(journey.stage,"producao");revoked.status="verified";
   r = await req("admin/finish", { lead_id: journey.id }, { authorization: "Bearer good" });assert.equal(r.ok,true);assert.equal(journey.stage,"finalizados");
   assert.equal(journey.automation_paused,service === "uber","Finalization must preserve manual pause and release production pause");
+  const beforeVerbalClaim=journey.payment_status;const beforeProofTimestamp=journey.proof_received_at;
+  await req("webhook/waha",incoming("verbal-payment","Paguei, pix feito"),hookHeaders);
+  assert.equal(journey.payment_status,beforeVerbalClaim,"Verbal payment claim must not mark an absent receipt as received");assert.equal(journey.proof_received_at,beforeProofTimestamp);
+  const invalidProof=incoming("unsupported-proof","paguei",true);invalidProof.payload.media.mimetype="image/gif";
+  const beforeInvalidProof=journey.payment_status;
+  await req("webhook/waha",invalidProof,hookHeaders);
+  assert.equal(journey.payment_status,beforeInvalidProof,"Unsupported attachment must not become a received proof merely from its caption");
   ocrResult = { text: "COMPROVANTE PIX AGENDADO Transferencia pendente Valor R$ 150,00 Recebedor Pessoa Teste", confidence: 93, method: "image_ocr" };
   await req("webhook/waha", incoming("scheduled-proof", "", true), hookHeaders);assert.equal(tables.documents.at(-1).kind,"outro");assert.notEqual(journey.payment_status,"confirmed");
   ocrResult = { text: "COMPROVANTE DE PAGAMENTO PIX Transferencia concluida Valor R$ 150,00 Recebedor Pessoa Teste Transacao TESTE", confidence: 93, method: "image_ocr" };
@@ -655,8 +665,24 @@ for (const service of ["uber", "documento"]) {
   if(service === "uber") assert.equal(outbound.length,beforeProof,"Manual pause must suppress receipt reply");
   else assert.match(outbound.at(-1).text,/continua pendente/);
   r = await req("admin/payment", {lead_id:journey.id}, {authorization:"Bearer good"});assert.match(r.error,/entregue/);
-  await req("admin/deliver", {lead_id:journey.id}, {authorization:"Bearer good"});await req("admin/payment", {lead_id:journey.id}, {authorization:"Bearer good"});assert.equal(journey.payment_status,"confirmed");assert.equal(journey.stage,"pagos");
+  await req("admin/deliver", {lead_id:journey.id}, {authorization:"Bearer good"});
+  const quotedPrice=journey.price_cents;journey.price_cents=quotedPrice+1;r=await req("admin/payment",{lead_id:journey.id},{authorization:"Bearer good"});assert.match(r.error,/valor contratado/);journey.price_cents=quotedPrice;
+  await req("admin/payment", {lead_id:journey.id}, {authorization:"Bearer good"});assert.equal(journey.payment_status,"confirmed");assert.equal(journey.stage,"pagos");
   const documentCount = tables.documents.length;
   await req("webhook/waha", incoming("proof", "", true), hookHeaders);assert.equal(tables.documents.length,documentCount);assert.equal(journey.payment_status,"confirmed");
   console.log(`PASS complete ${service} journey: first/reply, unknown file, ${requiredKinds.length} documents, human validation, production, finish, scheduled proof rejected, OCR receipt without caption, delivery, manual payment, replay protection`);
 }
+env.BAHIANO_ADMIN_USER_ID=authUser.id;
+const originalAuth={...authUser};
+authUser={...authUser,email:"new-owner@example.invalid"};
+assert.equal((await whatsappRequest("session", "GET")).status,200,"Owner must retain API access after email change");
+authUser={...originalAuth,id:"00000000-0000-4000-8000-000000000099"};
+assert.equal((await whatsappRequest("session", "GET")).status,401,"Matching email must not grant another identity access");
+authUser={...originalAuth,email_confirmed_at:null};
+assert.equal((await whatsappRequest("session", "GET")).status,401,"Unconfirmed identity must be rejected");
+authUser=originalAuth;
+delete env.BAHIANO_ADMIN_USER_ID;
+assert.equal((await whatsappRequest("session","GET")).status,401,"Missing owner configuration must fail closed");
+env.BAHIANO_ADMIN_USER_ID=originalAuth.id;
+assert.equal((await handler(new Request("https://api.example/admin/meta/status"))).status,401);
+console.log("PASS stable owner identity, email change, matching-email impersonation rejection and protected Meta route.");
