@@ -81,14 +81,13 @@ export default function Home() {
     bahiano_cents: 10000,
     campaign_cents: 5000,
   });
-  const [demo, setDemo] = useState(false);
   const [previewDocument, setPreviewDocument] = useState<Doc | null>(null);
   const closePreview = useCallback(() => setPreviewDocument(null), []);
   const [month, setMonth] = useState(() => financialMonth());
   useEffect(() => { const timer = setInterval(() => setMonth(financialMonth()), 10000); return () => clearInterval(timer); }, []);
   const viewLeads = useMemo(
-    () => leads.filter((lead) => (lead.source === "demonstracao") === demo),
-    [leads, demo],
+    () => leads.filter((lead) => lead.source !== "demonstracao"),
+    [leads],
   );
   const selectedRef = useRef<string | null>(null);
   const refreshGeneration = useRef(0);
@@ -687,12 +686,6 @@ export default function Home() {
             </div>
           )}
         </header>
-        {section !== "settings" && <div className="notice">
-          <span>{demo ? "Demonstração: clientes e valores fictícios para apresentação." : "Exibindo apenas atendimentos reais."}</span>
-          <button className="smallAction" onClick={() => { setDemo(!demo); setSelected(null); setQuery(""); }}>
-            {demo ? "Voltar aos dados reais" : "Ver exemplos"}
-          </button>
-        </div>}
         {notice && (
           <div className="notice" role="status">
             {notice}
