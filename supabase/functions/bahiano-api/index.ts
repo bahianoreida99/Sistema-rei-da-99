@@ -291,7 +291,7 @@ function docType(s: string) {
   const x = s.toLowerCase();
   if (/comprovante|pix|pagamento/.test(x)) return "comprovante";
   // A caption mentioning both sides cannot prove their presence.
-  if (/\\bcnh\\b/.test(x) && /frente/.test(x) && /verso|atr[aá]s/.test(x)) return "cnh_sem_lado";
+  if (/\bcnh\b/.test(x) && /frente/.test(x) && /verso|atr[aá]s/.test(x)) return "cnh_sem_lado";
   if (/cnh/.test(x) && /verso|atr[aá]s/.test(x)) return "cnh_verso";
   if (/cnh/.test(x) && /frente/.test(x)) return "cnh_frente";
   if (/\bcnh\b|carteira nacional de habilita/.test(x)) return "cnh_sem_lado";
@@ -304,7 +304,7 @@ function docType(s: string) {
 
 type OCRPart = { area?: string; text?: string; confidence?: number };
 function normalizeOCR(value: string): string {
-  return String(value || "").normalize("NFD").replace(/[\\u0300-\\u036f]/g, "").toLowerCase();
+  return String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 }
 function markerCount(value: string, markers: RegExp[]): number {
   return markers.reduce((total, marker) => total + Number(marker.test(value)), 0);
@@ -317,16 +317,16 @@ function markerCount(value: string, markers: RegExp[]): number {
 function isCompleteCnh(regions: OCRPart[], text: string, hint: string): boolean {
   if (!Array.isArray(regions) || regions.length < 2) return false;
   const main = normalizeOCR(text + " " + hint);
-  if (!/\\bcnh\\b|carteira nacional.{0,30}habilita/.test(main)) return false;
+  if (!/\bcnh\b|carteira nacional.{0,30}habilita/.test(main)) return false;
   const frontMarkers = [
-    /\\bnome\\b/, /filiacao/, /data.{0,14}nascimento|nascimento/,
-    /identidade|doc\\.?\\s*ident/, /naturalidade/
+    /\bnome\b/, /filiacao/, /data.{0,14}nascimento|nascimento/,
+    /identidade|doc\.?\s*ident/, /naturalidade/
   ];
   const backMarkers = [
     /observacoes|restricoes/, /categoria.{0,18}habilit|categorias/,
-    /codigo.{0,15}seguranca/, /\\bqr\\s*code\\b|\\bqrcode\\b/,
+    /codigo.{0,15}seguranca/, /\bqr\s*code\b|\bqrcode\b/,
     /assinatura.{0,22}(?:emissor|portador|condutor)/,
-    /atividade.{0,15}remunerada/, /\\brenach\\b/
+    /atividade.{0,15}remunerada/, /\brenach\b/
   ];
   const scores = regions
     .filter(r => Number(r.confidence || 0) >= 30 && String(r.text || "").trim().length >= 25)
