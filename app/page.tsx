@@ -379,6 +379,19 @@ export default function Home() {
       setBusy("");
     }
   };
+  const reanalyzeDocument = async (d: Doc) => {
+    const lead = leads.find(l => l.id === d.lead_id);
+    if (!lead) return;
+    setBusy(d.id);
+    try {
+      await adminCall("reanalyze-document", lead, {document_id:d.id});
+      setNotice("Arquivo reanalisado pelo OCR. Confira o tipo e os dados antes de validar.");
+    } catch (e) {
+      setNotice(e instanceof Error ? e.message : "Falha ao reanalisar documento");
+    } finally {
+      setBusy("");
+    }
+  };
   const requiredDocs = (l: Lead) =>
     l.service === "desconhecido"
       ? []
@@ -1039,6 +1052,13 @@ export default function Home() {
                                 : "Aguardando conferência"}
                           </small>
                           {d.identification_note && <small>{d.identification_note}</small>}
+                          {d.status === "received" && d.storage_path && (
+                            <button type="button" className="smallAction docRescan"
+                              disabled={busy === d.id}
+                              onClick={() => void reanalyzeDocument(d)}>
+                              <Search size={12} /> Reanalisar arquivo
+                            </button>
+                          )}
                           <label className="docKindLabel">
                             Tipo do arquivo
                             <select
