@@ -46,9 +46,8 @@ function cropEnhanced(image, area) {
   ctx.putImageData(pixels, 0, 0);
   return canvas.toBuffer("image/png");
 }
-async function scanTwoAreas(image, labelPrefix) {
+async function scanTwoAreas(image, labelPrefix, horizontal) {
   if (image.width < 450 || image.height < 300) return;
-  const horizontal = image.width > image.height * 1.2;
   const first = horizontal
     ? { sx: 0, sy: 0, sw: image.width / 2, sh: image.height }
     : { sx: 0, sy: 0, sw: image.width, sh: image.height / 2 };
@@ -95,7 +94,8 @@ try {
       const viewport = firstPage.getViewport({scale});
       const canvas = createCanvas(Math.ceil(viewport.width),Math.ceil(viewport.height));
       await firstPage.render({canvasContext:canvas.getContext("2d"),viewport,canvas}).promise;
-      await scanTwoAreas(canvas,"pdf_half");
+      await scanTwoAreas(canvas,"pdf_columns",true);
+      await scanTwoAreas(canvas,"pdf_rows",false);
     }
     result.pages = pdf.numPages;
     await loadingTask.destroy();
@@ -105,7 +105,8 @@ try {
     const canvas = shrinkAndDraw(image);
     result = { ...(await recognize(canvas.toBuffer("image/png"))), method: "image_ocr" };
     if (probableCNH(filename + " " + result.text)) {
-      await scanTwoAreas(image, "image_half");
+      await scanTwoAreas(image, "image_columns",true);
+      await scanTwoAreas(image, "image_rows",false);
     }
   }
   result.regions = regions;
