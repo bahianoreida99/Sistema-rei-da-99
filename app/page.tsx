@@ -46,6 +46,7 @@ type Section = "dashboard" | "kanban" | "settings" | "automation";
 const docLabels: Record<string, string> = {
   cnh_frente: "CNH — frente",
   cnh_sem_lado: "CNH — lado a confirmar",
+  cnh_completa: "CNH digital — frente e verso",
   cnh_verso: "CNH — verso",
   rg_frente: "RG — frente",
   rg_verso: "RG — verso",
@@ -359,6 +360,9 @@ export default function Home() {
   ) => {
     const lead = leads.find((l) => l.id === d.lead_id);
     if (!lead) return;
+    if (status === "verified" && kind === "cnh_completa" && !confirm(
+      "Você conferiu VISUALMENTE a frente e o verso da CNH neste mesmo arquivo? Esta verificação é necessária antes de liberar Produção."
+    )) return;
     setBusy(d.id);
     try {
       await adminCall("document", lead, { document_id: d.id, kind, status });
@@ -385,8 +389,12 @@ export default function Home() {
     Boolean(l.email && l.phone && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(l.email) && /^\d{10,15}$/.test(l.phone.replace(/\D/g,""))) &&
     requiredDocs(l).length > 0 &&
     requiredDocs(l).every((kind) =>
-      documents.some(
-        (d) => d.lead_id === l.id && d.kind === kind && d.status === "verified",
+      documents.some((d) =>
+        d.lead_id === l.id && d.status === "verified" && (
+          d.kind === kind || (
+            d.kind === "cnh_completa" && ["cnh_frente","cnh_verso"].includes(kind)
+          )
+        )
       ),
     );
   const moveToProduction = async (l: Lead) => {
