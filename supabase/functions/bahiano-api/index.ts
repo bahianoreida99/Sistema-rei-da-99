@@ -554,6 +554,11 @@ async function webhook(body: any) {
   if (!lead) return { classified: "unknown" };
   const now = new Date().toISOString();
   const proposed = docType(message);
+  // A reply such as "frente" refers only to one recently received CNH
+  // whose family is known but whose side remains unconfirmed.
+  const sideReply = !p.hasMedia
+    ? /^(?:(?:é|eh|e)\s+)?(?:a\s+)?(frente|verso|atr[aá]s)(?:\s+da\s+cnh)?[.!? ]*$/i.exec(message.trim())?.[1]?.toLowerCase() || ""
+    : "";
   const email = message.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0];
   if (email)
     lead = await update("leads", lead.id, { email: email.slice(0, 254) });
@@ -636,13 +641,30 @@ async function webhook(body: any) {
       !uploaded ? "media_invalid" : uploaded.kind === "comprovante" ? "proof_received" : ["outro","cnh_sem_lado"].includes(uploaded.kind) ? "media_unknown" : "media_identified",
       {documento: uploaded ? (docs[uploaded.kind] || uploaded.kind) : ""},
     );
-  } else if (!p.hasMedia && proposed !== "outro" && proposed !== "comprovante") {
-    const unknown = await rows("documents", `?lead_id=eq.${lead.id}&kind=eq.outro&status=eq.received&order=received_at.desc&limit=2`);
-    if (unknown.length === 1 && Date.now() - Date.parse(unknown[0].received_at) < 10 * 60 * 1000) {
-      await update("documents", unknown[0].id, { kind: proposed, identification_method: "message_followup", identification_confidence: 0, identification_note: "Tipo informado em mensagem posterior. Ainda exige conferência." });
-      await send(chat, "Obrigado! Identificamos o arquivo como " + (docs[proposed] || proposed) + ". O Baiano ainda vai conferir a legibilidade e os dados.", lead, "identify-reply:" + mid,"identify_reply",{documento:docs[proposed] || proposed});
+  } else if (!p.hasMedia && ((proposed !== "outro" && proposed !== "comprovante") || sideReply)) {
+    const pending = await rows("documents", `?lead_id=eq.${lead.id}&status=eq.received&order=received_at.desc&limit=10`);
+    const candidates = pending.filter((d: any) =>
+      sideReply ? d.kind === "cnh_sem_lado" : ["outro", "cnh_sem_lado"].includes(d.kind));
+    const resolvedKind = sideReply
+      ? (sideReply === "frente" ? "cnh_frente" : "cnh_verso")
+      : proposed;
+    if (
+      candidates.length === 1 &&
+      Date.now() - Date.parse(candidates[0].received_at) < 10 * 60 * 1000 &&
+      (resolvedKind !== "cnh_sem_lado" || candidates[0].kind === "outro")
+    ) {
+      await update("documents", candidates[0].id, {
+        kind: resolvedKind,
+        identification_method: "message_followup",
+        identification_confidence: 0,
+        identification_note: "Lado ou tipo informado pelo cliente. Exige conferência humana.",
+      });
+      await send(chat, "Obrigado! Registramos o arquivo como " + (docs[resolvedKind] || resolvedKind) +
+        ". O Baiano ainda vai conferir a legibilidade e os dados.",
+        lead, "identify-reply:" + mid, "identify_reply", {documento:docs[resolvedKind] || resolvedKind});
     } else {
-      await send(chat, "Envie o arquivo junto da identificação do tipo e do lado, para associarmos corretamente ao seu documento.", lead, "identify-reply:" + mid,"identify_unmatched");
+      await send(chat, "Para identificar corretamente, envie o arquivo com a legenda CNH frente ou CNH verso, ou confirme o lado da CNH mais recente.",
+        lead, "identify-reply:" + mid, "identify_unmatched");
     }
   } else if (firstReply || email || /documentos?|enviar|faltando/i.test(message)) {
     const existingDocs = await rows("documents", `?lead_id=eq.${lead.id}&select=kind,status`);
