@@ -74,7 +74,7 @@ if (process.argv[1]?.endsWith("document-reader.mjs")) {
   assert.equal(unspecified.kind, "cnh_sem_lado");assert.match(unspecified.identification_note,/frente ou verso/);
   assert.equal(context.identify("PIX QR CODE COBRANCA Valor R$ 150,00 Recebedor Pessoa Teste", "", 95, "image_ocr").kind,"outro");
   assert.equal(context.identify("CARTEIRA DE IDENTIDADE REGISTRO GERAL FRENTE VERSO Nome Filiacao", "RG frente", 95, "image_ocr").kind,"outro");
-  assert.equal(context.identify("", "comprovante.png", 0, "unreadable").identification_method,"caption");
+  assert.equal(context.identify("", "comprovante.png", 0, "unreadable").identification_method,"filename_or_caption");
   const incident = context.identify("imagem pouco legível", "CNH 01_09_26.jpg", 42, "image_ocr");
   assert.equal(incident.kind, "cnh_sem_lado", "Arquivo CNH real deve aparecer como CNH, mesmo sem lado");
   assert.equal(incident.identification_method, "filename_or_caption");
