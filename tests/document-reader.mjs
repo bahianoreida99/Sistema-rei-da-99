@@ -103,7 +103,7 @@ if (process.argv[1]?.endsWith("document-reader.mjs")) {
     return canvas.toBuffer("image/png");
   };
   const combined = await readDocument(combinedCanvas(), "image/png", {filename:"CNH DIGITAL - frente e verso.png"});
-  assert.equal(combined.regions.length,2,"OCR must read two halves separately");
+  assert.equal(combined.regions.length,4,"OCR must scan both horizontal and vertical layouts separately");
   const combinedKind=context.identify(combined.text,"CNH digital",combined.confidence,combined.method,combined.regions);
   assert.equal(combinedKind.kind,"cnh_completa",JSON.stringify({
     detected:combinedKind,
