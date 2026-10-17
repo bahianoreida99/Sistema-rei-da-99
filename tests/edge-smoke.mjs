@@ -780,6 +780,130 @@ assert.equal(rescanDoc.kind,"cnh_completa","Old upload can be rescanned by admin
 assert.equal(rescanDoc.status,"received","Rescan never verifies documents");
 assert.notEqual(bothLead.stage,"producao");
 console.log("PASS: composite CNH, two faces in one file, no duplicate intake, manual verification, protected rescan.");
+
+// Regression from the real WhatsApp 2994 incident: confirm "Digital", then
+// request ONLY missing documents after every accepted item until complete.
+tables.business_settings[0].value = { enabled:true };
+const progressChat="5511999996789@c.us";
+const progress=(id, body, filename, mime="image/jpeg") => ({
+  event:"message",session:"default",payload:{
+    from:progressChat,id:"progress-"+id,fromMe:false,
+    body,hasMedia:Boolean(filename),
+    ...(filename ? {media:{url:"https://waha.example/api/files/fixture.png",mimetype:mime,filename}} : {})
+  }
+});
+const progressCall=async (id,body,filename,mime) =>
+  req("webhook/waha",progress(id,body,filename,mime),hookHeaders);
+await progressCall("hello","Olá, quero minha conta Uber");
+const progressLead=tables.leads.at(-1);
+assert.equal(progressLead.service,"uber");
+ocrResult={text:"pouco texto devido a foto da CNH",confidence:42,method:"image_ocr"};
+await progressCall("cnh","","CNH 01_09_26.jpg");
+const progressCnh=tables.documents.at(-1);
+progressCnh.received_at=new Date().toISOString(); // DB default in production
+assert.equal(progressCnh.kind,"cnh_sem_lado");
+assert.match(outbound.at(-1).text,/digital.*frente e verso/i);
+assert.match(outbound.at(-1).text,/CRLV/);
+assert.match(outbound.at(-1).text,/selfie/);
+assert.match(outbound.at(-1).text,/E-mail/);
+const digitalResponsesBefore=outbound.length;
+await progressCall("digital","Digital");
+assert.equal(outbound.length,digitalResponsesBefore+1,"Digital must receive acknowledgement");
+assert.equal(progressCnh.kind,"cnh_completa");
+assert.equal(progressCnh.status,"received","Client declaration may not verify");
+assert.equal(progressCnh.identification_confidence,0,"Client declaration is not OCR proof");
+assert.match(progressCnh.identification_note,/OCR não confirmou/);
+assert.match(outbound.at(-1).text,/OK!/);
+assert.match(outbound.at(-1).text,/CRLV/);
+assert.match(outbound.at(-1).text,/selfie/);
+assert.match(outbound.at(-1).text,/E-mail/);
+assert.doesNotMatch(outbound.at(-1).text,/• CNH frente|• CNH verso/);
+assert.equal(progressLead.stage,"conversando","Documents are not auto-verified");
+await progressCall("digital","Digital");
+assert.equal(outbound.length,digitalResponsesBefore+1,"Duplicate WhatsApp event sends no duplicate");
+ocrResult={text:"CRLV LICENCIAMENTO CERTIFICADO DE REGISTRO VEICULO RENAVAM PLACA",confidence:94,method:"image_ocr"};
+await progressCall("crlv","","CRLV.jpg");
+const progressCRLV=tables.documents.at(-1);
+assert.equal(progressCRLV.kind,"crlv");
+assert.match(outbound.at(-1).text,/OK!/);
+assert.match(outbound.at(-1).text,/selfie/);
+assert.match(outbound.at(-1).text,/E-mail/);
+assert.doesNotMatch(outbound.at(-1).text,/• documento do carro \(CRLV\)/);
+ocrResult={text:"",confidence:0,method:"image_ocr"};
+await progressCall("selfie","","Selfie.jpg");
+const progressSelfie=tables.documents.at(-1);
+assert.equal(progressSelfie.kind,"selfie");
+assert.match(outbound.at(-1).text,/• E-mail/);
+assert.doesNotMatch(outbound.at(-1).text,/• selfie|• CNH|• documento do carro/i);
+await progressCall("email","cliente.teste@example.invalid");
+assert.equal(progressLead.email,"cliente.teste@example.invalid");
+assert.match(outbound.at(-1).text,/Recebemos todos os itens solicitados/i);
+assert.equal(progressLead.stage,"conversando","Never automatically start production");
+assert.notEqual(progressCnh.status,"verified");
+assert.equal((await progressCall("extra","Obrigado")).stage,"conversando");
+assert.match(outbound.at(-1).text,/Recebemos todos os itens solicitados/i);
+progressSelfie.status="rejected";
+await progressCall("rejected","OK");
+assert.match(outbound.at(-1).text,/• selfie com fundo branco/);
+assert.doesNotMatch(outbound.at(-1).text,/• E-mail|• CNH/);
+console.log("PASS: first-to-last document checklist: CNH Digital, CRLV, selfie, email, idempotency, rejection and human review.");
+
+const separateChat="5511999996790@c.us";
+const separate=(id,body,filename)=>({
+  event:"message",session:"default",payload:{from:separateChat,id:"separate-"+id,fromMe:false,body,hasMedia:!!filename,
+    ...(filename?{media:{url:"https://waha.example/api/files/fixture.png",mimetype:"image/jpeg",filename}}:{})}
+});
+await req("webhook/waha",separate("hello","Quero conta Uber"),hookHeaders);
+ocrResult={text:"CARTEIRA NACIONAL DE HABILITACAO FRENTE NOME FILIACAO",confidence:96,method:"image_ocr"};
+await req("webhook/waha",separate("front","","cnh_frente.jpg"),hookHeaders);
+assert.match(outbound.at(-1).text,/• CNH verso/);
+assert.doesNotMatch(outbound.at(-1).text,/• CNH frente/);
+ocrResult={text:"CARTEIRA NACIONAL DE HABILITACAO VERSO OBSERVACOES REGISTRO",confidence:96,method:"image_ocr"};
+await req("webhook/waha",separate("back","","cnh_verso.jpg"),hookHeaders);
+assert.doesNotMatch(outbound.at(-1).text,/• CNH frente|• CNH verso/);
+assert.match(outbound.at(-1).text,/CRLV/);
+console.log("PASS: separated CNH fronts/backs remove only the matching outstanding requirement.");
+
+const carChat="5511999996791@c.us";
+const car=(id,body,filename)=>({event:"message",session:"default",
+  payload:{from:carChat,id:"car-"+id,fromMe:false,body,hasMedia:!!filename,
+    ...(filename?{media:{url:"https://waha.example/api/files/fixture.png",mimetype:"image/jpeg",filename}}:{})}});
+await req("webhook/waha",car("hello","Preciso do documento do carro CRLV"),hookHeaders);
+const carProgressLead=tables.leads.at(-1);
+assert.equal(carProgressLead.service,"documento");
+ocrResult={text:"CRLV LICENCIAMENTO CERTIFICADO DE REGISTRO VEICULO RENAVAM PLACA",confidence:94,method:"image_ocr"};
+await req("webhook/waha",car("crlv","","CRLV.jpg"),hookHeaders);
+assert.match(outbound.at(-1).text,/• E-mail/);
+assert.doesNotMatch(outbound.at(-1).text,/• CNH|• documento do carro/);
+await req("webhook/waha",car("email","meuemail@example.invalid"),hookHeaders);
+assert.match(outbound.at(-1).text,/Recebemos todos os itens solicitados/i);
+assert.equal(carProgressLead.stage,"conversando");
+console.log("PASS: CRLV-only flow: one document + email, then wait for human verification.");
+
+const unknownChat="5511999996792@c.us";
+const unknownEvent=(id,body,filename,mime="image/jpeg")=>({event:"message",session:"default",
+  payload:{from:unknownChat,id:"unknown-flow-"+id,fromMe:false,body,hasMedia:!!filename,
+    ...(filename?{media:{url:"https://waha.example/api/files/fixture.png",mimetype:mime,filename}}:{})}});
+await req("webhook/waha",unknownEvent("start","Quero o documento do carro"),hookHeaders);
+ocrResult={text:"ruido ilegivel",confidence:22,method:"image_ocr"};
+await req("webhook/waha",unknownEvent("media","","arquivo.jpg"),hookHeaders);
+const unknownFile=tables.documents.at(-1);
+unknownFile.received_at=new Date().toISOString();
+assert.equal(unknownFile.kind,"outro");
+assert.match(outbound.at(-1).text,/confirmar o tipo/i);
+assert.match(outbound.at(-1).text,/• documento do carro/);
+await req("webhook/waha",unknownEvent("identify","É o CRLV"),hookHeaders);
+assert.equal(unknownFile.kind,"crlv");
+assert.equal(unknownFile.status,"received");
+assert.match(outbound.at(-1).text,/• E-mail/);
+assert.doesNotMatch(outbound.at(-1).text,/• documento do carro/);
+const beforeUnsupportedDocs=tables.documents.length;
+await req("webhook/waha",unknownEvent("bad","","invalido.gif","image/gif"),hookHeaders);
+assert.equal(tables.documents.length,beforeUnsupportedDocs);
+assert.match(outbound.at(-1).text,/Não conseguimos registrar/i);
+assert.match(outbound.at(-1).text,/• E-mail/);
+console.log("PASS: unknown image, type clarification, invalid media and pending-item checklist.");
+
 env.BAHIANO_ADMIN_USER_ID=authUser.id;
 const originalAuth={...authUser};
 authUser={...authUser,email:"new-owner@example.invalid"};
