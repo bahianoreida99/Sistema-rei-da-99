@@ -16,12 +16,12 @@ async function acquire() {
   });
 }
 // Files stay inside the API process; no external OCR service receives them.
-export async function readDocument(bytes, mime) {
+export async function readDocument(bytes, mime, options = {}) {
   if (!await acquire()) return { text: "", confidence: 0, method: "busy" };
   try {
     return await new Promise((resolve) => {
       const worker = new Worker(new URL("./document-reader-worker.mjs", import.meta.url), {
-        workerData: { bytes: new Uint8Array(bytes), mime },
+        workerData: { bytes: new Uint8Array(bytes), mime, filename: String(options.filename || "").slice(0, 180) },
         resourceLimits: { maxOldGenerationSizeMb: 192 },
       });
       let finished = false;
