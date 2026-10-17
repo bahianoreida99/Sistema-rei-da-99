@@ -823,12 +823,18 @@ async function admin(req: Request, path: string) {
     const detected = identifyDocument(String(read.text || ""),String(record.original_filename || ""),
       Number(read.confidence || 0),String(read.method || ""),Array.isArray(read.regions)?read.regions:[]);
     // Never downgrade an existing known classification because of OCR noise.
-    const updatedKind = detected.kind === "outro" ? record.kind :
-      record.kind === "cnh_completa" && detected.kind === "cnh_sem_lado" ? record.kind : detected.kind;
-    const changes: any = {
-      identification_note: updatedKind === record.kind && detected.kind !== updatedKind
-        ? "A leitura não trouxe evidências para alterar a classificação anterior. Confira o arquivo manualmente."
-        : detected.identification_note,
+    // A partial OCR reading must never override a human-reported combined CNH.
+    // If the new analysis is inconclusive, preserve the original provenance.
+    const inconclusive = detected.kind === "outro" ||
+      (record.kind === "cnh_completa" && detected.kind !== "cnh_completa");
+    const updatedKind = inconclusive ? record.kind : detected.kind;
+    const changes: any = inconclusive ? {
+      identification_note: String(record.identification_note || "") +
+        " Reanálise não confirmou uma nova classificação; confira a imagem manualmente.",
+      identification_method: record.identification_method,
+      identification_confidence: record.identification_confidence,
+    } : {
+      identification_note: detected.identification_note,
       identification_method: detected.identification_method,
       identification_confidence: detected.identification_confidence,
     };
