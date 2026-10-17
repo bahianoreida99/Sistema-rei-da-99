@@ -71,10 +71,17 @@ if (process.argv[1]?.endsWith("document-reader.mjs")) {
   const corrupt = await readDocument(Buffer.from("invalid image"), "image/png");
   assert.equal(context.identify(corrupt.text, "", corrupt.confidence, corrupt.method).kind, "outro");
   const unspecified = context.identify("CARTEIRA NACIONAL DE HABILITACAO Nome Registro de pessoa", "", 90, "image_ocr");
-  assert.equal(unspecified.kind, "outro");assert.match(unspecified.identification_note,/frente ou verso/);
+  assert.equal(unspecified.kind, "cnh_sem_lado");assert.match(unspecified.identification_note,/frente ou verso/);
   assert.equal(context.identify("PIX QR CODE COBRANCA Valor R$ 150,00 Recebedor Pessoa Teste", "", 95, "image_ocr").kind,"outro");
   assert.equal(context.identify("CARTEIRA DE IDENTIDADE REGISTRO GERAL FRENTE VERSO Nome Filiacao", "RG frente", 95, "image_ocr").kind,"outro");
   assert.equal(context.identify("", "comprovante.png", 0, "unreadable").identification_method,"caption");
+  const incident = context.identify("imagem pouco legível", "CNH 01_09_26.jpg", 42, "image_ocr");
+  assert.equal(incident.kind, "cnh_sem_lado", "Arquivo CNH real deve aparecer como CNH, mesmo sem lado");
+  assert.equal(incident.identification_method, "filename_or_caption");
+  assert.match(incident.identification_note, /Confirme frente ou verso/);
+  assert.equal(context.identify("", "foto qualquer.jpg", 42, "image_ocr").kind, "outro");
+  assert.equal(context.identify("CARTEIRA NACIONAL DE HABILITACAO FRENTE Nome Registro", "", 87, "image_ocr").kind, "cnh_frente");
+  assert.equal(context.identify("CARTEIRA NACIONAL DE HABILITACAO VERSO Observacoes", "", 87, "image_ocr").kind, "cnh_verso");
   const batch = await Promise.all(Array.from({length:6},()=>readDocument(fixtureImage(cases[5][1]),"image/png")));
   assert.equal(batch.filter(result=>result.method==="busy").length,1,"OCR queue must be bounded");
   assert.equal(batch.filter(result=>context.identify(result.text,"",result.confidence,result.method).kind==="comprovante").length,5);
