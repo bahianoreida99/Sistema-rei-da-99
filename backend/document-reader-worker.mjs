@@ -8,7 +8,7 @@ let ocr;
 const maxText = 20000;
 const filename = String(workerData.filename || "");
 const regions = [];
-const probableCNH = (value) => /\\bcnh\\b|carteira nacional.{0,30}habilita|habilitacao|habilitação/i.test(value);
+const probableCNH = (value) => /\bcnh\b|carteira nacional.{0,30}habilita|habilitacao|habilitação/i.test(value);
 
 async function recognize(image) {
   ocr ||= await createWorker("por", 1, { ...require("@tesseract.js-data/por"), cacheMethod: "none" });
