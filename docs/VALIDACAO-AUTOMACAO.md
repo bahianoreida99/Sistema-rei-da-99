@@ -35,7 +35,7 @@ Nos arquivos de imagem legíveis do teste, o OCR retornou confiança de 88% a 94
 ## Fluxos cobertos
 
 - Uber: primeira mensagem, saudação única, primeira resposta, orientação, seis itens de documentação, rejeição de arquivo desconhecido, aprovação humana, produção, finalização, comprovante pendente, entrega e confirmação manual.
-- Documento do carro: mesmo percurso, com RG frente, RG verso e CRLV.
+- Documento do carro: mesmo percurso, com CRLV; telefone e e-mail permanecem obrigatórios. RG não bloqueia a produção.
 - Comprovante sem legenda: arquivo identificado e serviço mantido em `proof_received`, com `paid_at` vazio até a confirmação manual.
 - Proteções: comprovante não transforma o serviço em pago; agendamento e cobrança não são comprovantes concluídos; repetição do webhook não cria outro arquivo ou outra saudação; pausa manual impede respostas automáticas.
 - Anexos: armazenamento privado, URL assinada, download real dos bytes e criação/leitura de ZIP.

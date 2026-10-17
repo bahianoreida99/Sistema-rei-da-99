@@ -56,8 +56,6 @@ const docLabels: Record<string, string> = {
 const baseDocs = [
   "cnh_frente",
   "cnh_verso",
-  "rg_frente",
-  "rg_verso",
   "crlv",
   "selfie",
 ];
@@ -379,7 +377,7 @@ export default function Home() {
     l.service === "desconhecido"
       ? []
       : l.service === "documento"
-        ? ["rg_frente", "rg_verso", "crlv"]
+        ? ["crlv"]
         : baseDocs;
   const canGoProduction = (l: Lead) =>
     Boolean(l.email && l.phone && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(l.email) && /^\d{10,15}$/.test(l.phone.replace(/\D/g,""))) &&

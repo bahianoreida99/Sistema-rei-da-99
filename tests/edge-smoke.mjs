@@ -198,6 +198,7 @@ assert.equal(tables.leads.length, 1);
 assert.equal(tables.leads[0].stage, "leads_campaign");
 assert.equal(outbound.length, 1);
 assert.match(outbound[0].text, /R\$ 350,00/);
+assert.doesNotMatch(outbound[0].text, /\bRG\b/i, 'Mensagem inicial não deve pedir RG');
 r = await req("webhook/waha", event("msg-1", "duplicated"), {
   "x-bahiano-webhook-token": "private_token",
 });
@@ -211,8 +212,6 @@ lead.email = "teste@example.test";
 for (const kind of [
   "cnh_frente",
   "cnh_verso",
-  "rg_frente",
-  "rg_verso",
   "crlv",
   "selfie",
 ])
@@ -441,7 +440,7 @@ r = await req(
 );
 assert.ok(r.missing.includes("CNH frente"));
 // WAHA failure must keep administrative finalization pending.
-for (const kind of ["cnh_frente","cnh_verso","rg_frente","rg_verso","crlv","selfie"]) tables.documents.push({id:crypto.randomUUID(),lead_id:direct.id,kind,status:"verified"});
+for (const kind of ["cnh_frente","cnh_verso","crlv","selfie"]) tables.documents.push({id:crypto.randomUUID(),lead_id:direct.id,kind,status:"verified"});
 direct.stage = "producao";
 failSend = true;
 r = await req(
@@ -623,6 +622,7 @@ for (const service of ["uber", "documento"]) {
   await req("webhook/waha", incoming("first", service === "uber" ? "Preciso de cadastro Uber" : "Preciso de documento do carro"), hookHeaders);
   const journey = tables.leads.at(-1);
   assert.equal(journey.stage, "leads");assert.ok(journey.welcome_sent_at);
+  assert.doesNotMatch(outbound.at(-1).text, /\bRG\b/i, "RG não deve ser pedido nos fluxos Uber/CRLV");
   await req("webhook/waha", incoming("reply", "Concordo. Meu email e teste@example.invalid"), hookHeaders);
   assert.equal(journey.stage, "conversando");assert.equal(journey.email, "teste@example.invalid");
   r=await req("admin/details",{lead_id:journey.id,email:"invalid-email"},{authorization:"Bearer good"});assert.match(r.error,/válido/);assert.equal(journey.email,"teste@example.invalid");
@@ -635,7 +635,7 @@ for (const service of ["uber", "documento"]) {
   await req("webhook/waha", incoming("identify-unknown", "RG frente"), hookHeaders);
   assert.equal(unknown.kind,"rg_frente");assert.equal(unknown.identification_method,"message_followup");assert.equal(unknown.status,"received");
   await req("admin/document", { lead_id: journey.id, document_id: unknown.id, kind: "outro", status: "rejected" }, { authorization: "Bearer good" });
-  const requiredKinds = service === "uber" ? ["cnh_frente","cnh_verso","rg_frente","rg_verso","crlv","selfie"] : ["rg_frente","rg_verso","crlv"];
+  const requiredKinds = service === "uber" ? ["cnh_frente","cnh_verso","crlv","selfie"] : ["crlv"];
   for (let index = 0; index < requiredKinds.length; index++) {
     const kind = requiredKinds[index];
     ocrResult = { text: documentTexts[kind] || "", confidence: kind === "selfie" ? 0 : 92, method: "image_ocr" };

@@ -16,13 +16,11 @@ const hookKey = E.get("BAHIANO_WEBHOOK_TOKEN") || E.get("WEBHOOK_TOKEN") || "";
 const required = [
   "cnh_frente",
   "cnh_verso",
-  "rg_frente",
-  "rg_verso",
   "crlv",
   "selfie",
 ];
 const requiredFor = (lead: any): string[] =>
-  lead.service === "documento" ? ["rg_frente", "rg_verso", "crlv"] : required;
+  lead.service === "documento" ? ["crlv"] : required;
 const docs: Record<string, string> = {
   cnh_frente: "CNH frente",
   cnh_verso: "CNH verso",
@@ -254,7 +252,7 @@ const automationRules = [
   { id: "price", title: "Informar preço", trigger: "Cliente pergunta valor, preço, quanto custa", message:"O valor do serviço é {valor}. O pagamento acontece após a entrega do serviço contratado. O Baiano vai analisar os documentos antes de confirmar a viabilidade.", variables:["nome","valor"] },
   { id: "human", title: "Atendimento humano", trigger: "Cliente pede atendente, pessoa ou atendimento humano; automação é pausada", message:"Certo! Vou encaminhar seu atendimento ao Baiano. Você pode continuar conversando por aqui.", variables:["nome"] },
   { id: "media_invalid", title: "Arquivo não aceito", trigger: "Anexo não pode ser registrado ou formato não é aceito", message:"Não conseguimos registrar esse arquivo. Envie uma imagem JPG/PNG/WebP ou PDF de até 12 MB.", variables:["nome"] },
-  { id: "media_unknown", title: "Identificar tipo ou lado", trigger: "Bot recebe arquivo, mas não identifica com segurança", message:"Recebemos o arquivo, mas precisamos confirmar o tipo ou o lado. Informe se é CNH frente/verso, RG frente/verso, CRLV ou selfie. Se estiver desfocado, envie uma nova foto nítida.", variables:["nome"] },
+  { id: "media_unknown", title: "Identificar tipo ou lado", trigger: "Bot recebe arquivo, mas não identifica com segurança", message:"Recebemos o arquivo, mas precisamos confirmar o tipo ou o lado. Informe se é CNH frente/verso, CRLV ou selfie. Se estiver desfocado, envie uma nova foto nítida.", variables:["nome"] },
   { id: "media_identified", title: "Documento identificado", trigger: "Leitura do anexo identifica o tipo do documento", message:"Recebemos o arquivo! ✅ Identificamos: {documento}. Vamos conferir a legibilidade e os dados antes de validar.", variables:["nome","documento"] },
   { id: "identify_reply", title: "Tipo informado pelo cliente", trigger: "Cliente identifica um único arquivo recente que estava sem tipo", message:"Obrigado! Identificamos o arquivo como {documento}. O Baiano ainda vai conferir a legibilidade e os dados.", variables:["nome","documento"] },
   { id: "identify_unmatched", title: "Associar identificação ao arquivo", trigger: "Cliente informa um tipo, mas não há um único arquivo recente para associar", message:"Envie o arquivo junto da identificação do tipo e do lado, para associarmos corretamente ao seu documento.", variables:["nome"] },
@@ -597,7 +595,7 @@ async function webhook(body: any) {
         : uploaded.kind === "comprovante"
           ? "Recebemos o comprovante. ✅ O Baiano vai conferir o valor, o destinatário e o recebimento. O pagamento continua pendente até a confirmação."
           : uploaded.kind === "outro"
-            ? "Recebemos o arquivo, mas precisamos confirmar o tipo ou o lado. Informe se é CNH frente/verso, RG frente/verso, CRLV ou selfie. Se estiver desfocado, envie uma nova foto nítida."
+            ? "Recebemos o arquivo, mas precisamos confirmar o tipo ou o lado. Informe se é CNH frente/verso, CRLV ou selfie. Se estiver desfocado, envie uma nova foto nítida."
             : "Recebemos o arquivo! ✅ Identificamos: " + (docs[uploaded.kind] || uploaded.kind) + ". Vamos conferir a legibilidade e os dados antes de validar.",
       lead,
       "receipt:" + mid,
