@@ -266,7 +266,7 @@ const lidBody = (id, body) => ({
   },
 });
 const lidSentBefore = outbound.length;
-r = await req("webhook/waha", lidBody("lid-case-1", "Olá, quero fazer uma conta uber"), hookHeaders);
+r = await req("webhook/waha", lidBody("lid-case-1", "Olá, quero fazer uma conta uber"), { "x-bahiano-webhook-token": "private_token" });
 assert.equal(r.first, true);
 const resolved = tables.contacts.find(c => c.chat_id === lidChat);
 assert.ok(resolved, "LID alternative JID must identify the customer phone");
@@ -277,10 +277,10 @@ assert.equal(resolvedLead.stage, "leads");
 assert.equal(outbound.length, lidSentBefore + 1);
 assert.equal(outbound.at(-1).chatId, lidChat);
 assert.doesNotMatch(outbound.at(-1).text, /\bRG\b/i);
-r = await req("webhook/waha", lidBody("lid-case-2", "Ok, vou enviar os documentos"), hookHeaders);
+r = await req("webhook/waha", lidBody("lid-case-2", "Ok, vou enviar os documentos"), { "x-bahiano-webhook-token": "private_token" });
 assert.equal(resolvedLead.stage, "conversando");
 assert.equal(r.stage, "conversando");
-r = await req("webhook/waha", lidBody("lid-case-2", "Ok, vou enviar os documentos"), hookHeaders);
+r = await req("webhook/waha", lidBody("lid-case-2", "Ok, vou enviar os documentos"), { "x-bahiano-webhook-token": "private_token" });
 assert.equal(r.duplicate, true);
 console.log("PASS: real WAHA @lid payload resolves to sender phone, sends welcome and advances to Conversando.");
 
