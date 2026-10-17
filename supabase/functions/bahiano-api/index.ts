@@ -871,7 +871,7 @@ async function admin(req: Request, path: string) {
     const missing = requiredFor(lead)
       .filter(
         (kind) =>
-          !documentRows.some((d) => d.kind === kind && d.status !== "rejected"),
+          !hasDocKind(documentRows,kind),
       )
       .map((kind) => docs[kind]);
     if (!lead.email) missing.push("e-mail");
@@ -984,7 +984,7 @@ async function admin(req: Request, path: string) {
       );
     if (!lead.email || !lead.phone || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(lead.email) || !/^\d{10,15}$/.test(String(lead.phone).replace(/\D/g,"")))
       return response({ error: "Telefone e e-mail válidos são obrigatórios" }, 409);
-    const missing = requiredFor(lead).filter((x) => !verified.has(x));
+    const missing = requiredFor(lead).filter((x) => !hasDocKind([...verified].map(kind=>({kind,status:"verified"})),x,true));
     if (missing.length)
       return response(
         {
@@ -1017,7 +1017,7 @@ async function admin(req: Request, path: string) {
     if (lead.stage !== "producao")
       return response({ error: "Não está em Produção" }, 409);
     const reviewed = await rows("documents",`?lead_id=eq.${id}&status=eq.verified&select=kind`);
-    if (!requiredFor(lead).every(kind=>reviewed.some(document=>document.kind===kind))) return response({error:"Revise os documentos obrigatórios antes de finalizar o serviço"},409);
+    if (!requiredFor(lead).every(kind=>hasDocKind(reviewed.map(document=>({...document,status:"verified"})),kind,true))) return response({error:"Revise os documentos obrigatórios antes de finalizar o serviço"},409);
     await send(
       contact.chat_id,
       "Olá! ✅ Seu serviço está finalizado. Por favor, ligue para o Baiano aqui pelo WhatsApp para combinar a entrega por videochamada. O pagamento acontece somente após a entrega, conforme combinado.",
