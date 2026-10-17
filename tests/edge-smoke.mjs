@@ -717,6 +717,8 @@ await req("webhook/waha",incident("reply","Vou enviar os documentos"),hookHeader
 ocrResult={text:"pouco texto com ruido",confidence:42,method:"image_ocr"};
 await req("webhook/waha",incident("image","","CNH 01_09_26.jpg"),hookHeaders);
 const pendingCnh=tables.documents.at(-1);
+// The mock does not apply Postgres received_at defaults; production does.
+pendingCnh.received_at=new Date().toISOString();
 assert.equal(pendingCnh.kind,"cnh_sem_lado");
 assert.equal(pendingCnh.status,"received");
 assert.match(outbound.at(-1).text,/frente.*verso/);
