@@ -12,7 +12,8 @@
     "lint": "eslint app lib scripts backend/*.mjs",
     "build:api": "node scripts/build-api.mjs",
     "start:api": "node backend/server.mjs",
-    "typecheck:api": "tsc -p tsconfig.api.json"
+    "typecheck:api": "tsc -p tsconfig.api.json",
+    "test:automation:100": "node tests/automation-100.mjs"
   },
   "dependencies": {
     "@napi-rs/canvas": "^1.0.11",
