@@ -253,6 +253,37 @@ assert.equal(lead.stage, "finalizados");
 assert.equal(tables.documents.at(-1).kind, "comprovante");
 // console.log('PASS: webhook authorization, classified site lead, first-message staging, deduplication, reply moves to Conversando, admin production, admin finalization, paid-proof staged (not paid), private document storage.');
 
+// WAHA NOWEB uses @lid for incoming messages and supplies the phone in
+// _data.key.remoteJidAlt. Test the exact shape received in production.
+const lidValue = "62170205274145@lid";
+const lidChat = "5511999994444@c.us";
+const lidBody = (id, body) => ({
+  event: "message.any",
+  session: "default",
+  payload: {
+    id, body, from: lidValue, fromMe: false,
+    _data: { key: { remoteJid: lidValue, remoteJidAlt: "5511999994444@s.whatsapp.net" } },
+  },
+});
+const lidSentBefore = outbound.length;
+r = await req("webhook/waha", lidBody("lid-case-1", "Olá, quero fazer uma conta uber"), hookHeaders);
+assert.equal(r.first, true);
+const resolved = tables.contacts.find(c => c.chat_id === lidChat);
+assert.ok(resolved, "LID alternative JID must identify the customer phone");
+assert.equal(tables.contacts.some(c => c.chat_id === lidValue), false);
+const resolvedLead = tables.leads.find(l => l.contact_id === resolved.id);
+assert.equal(resolvedLead.service, "uber");
+assert.equal(resolvedLead.stage, "leads");
+assert.equal(outbound.length, lidSentBefore + 1);
+assert.equal(outbound.at(-1).chatId, lidChat);
+assert.doesNotMatch(outbound.at(-1).text, /\bRG\b/i);
+r = await req("webhook/waha", lidBody("lid-case-2", "Ok, vou enviar os documentos"), hookHeaders);
+assert.equal(resolvedLead.stage, "conversando");
+assert.equal(r.stage, "conversando");
+r = await req("webhook/waha", lidBody("lid-case-2", "Ok, vou enviar os documentos"), hookHeaders);
+assert.equal(r.duplicate, true);
+console.log("PASS: real WAHA @lid payload resolves to sender phone, sends welcome and advances to Conversando.");
+
 // Untrusted contacts do not enter the board by arrival alone.
 const hookHeaders = { "x-bahiano-webhook-token": "private_token" };
 let count = tables.leads.length;
