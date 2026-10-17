@@ -782,6 +782,52 @@ async function admin(req: Request, path: string) {
   if (!lead) return response({ error: "Lead não encontrado" }, 404);
   const contact = await getContact(lead.contact_id);
   if (!contact) return response({ error: "Contato não encontrado" }, 409);
+  if (path === "/admin/reanalyze-document") {
+    const documentId = String(data.document_id || "");
+    if (!/^[a-f0-9-]{36}$/i.test(documentId))
+      return response({error:"Documento inválido"},400);
+    const record = (await rows("documents", "?id=eq." + documentId + "&lead_id=eq." + id + "&select=*"))[0];
+    if (!record) return response({error:"Documento não encontrado"},404);
+    if (record.status !== "received")
+      return response({error:"Apenas documentos aguardando conferência podem ser reanalisados"},409);
+    const savedPath = String(record.storage_path || "");
+    if (!savedPath.startsWith(id + "/") || !/^[a-f0-9-]{36}\/[a-f0-9-]{36}\.(?:png|jpg|webp|pdf)$/i.test(savedPath))
+      return response({error:"Caminho do anexo inválido"},409);
+    const mime = String(record.mime_type || "");
+    if (!["image/png","image/jpeg","image/webp","application/pdf"].includes(mime))
+      return response({error:"Formato de anexo não suportado"},415);
+    const reader = (globalThis as any).BahianoReadDocument;
+    if (typeof reader !== "function")
+      return response({error:"Leitor de documentos indisponível"},503);
+    const safePath = savedPath.split("/").map(encodeURIComponent).join("/");
+    const downloaded = await fetch(url + "/storage/v1/object/bahiano-documentos/" + safePath,{
+      headers: {apikey:dbKey,Authorization:`Bearer ${dbKey}`},
+      redirect:"error",signal:AbortSignal.timeout(10000),
+    });
+    if (!downloaded.ok) return response({error:"Não foi possível recuperar o anexo armazenado"},503);
+    const bytes = await downloaded.arrayBuffer();
+    if (bytes.byteLength > 12*1024*1024)
+      return response({error:"Arquivo excede o limite de 12 MB"},413);
+    const read = await reader(bytes,mime,{filename:String(record.original_filename || "")});
+    if (["busy","timeout","unavailable","unreadable"].includes(String(read.method || "")))
+      return response({error:"OCR indisponível no momento. Tente novamente."},503);
+    const detected = identifyDocument(String(read.text || ""),String(record.original_filename || ""),
+      Number(read.confidence || 0),String(read.method || ""),Array.isArray(read.regions)?read.regions:[]);
+    // Never downgrade an existing known classification because of OCR noise.
+    const updatedKind = detected.kind === "outro" ? record.kind :
+      record.kind === "cnh_completa" && detected.kind === "cnh_sem_lado" ? record.kind : detected.kind;
+    const changes: any = {
+      identification_note: updatedKind === record.kind && detected.kind !== updatedKind
+        ? "A leitura não trouxe evidências para alterar a classificação anterior. Confira o arquivo manualmente."
+        : detected.identification_note,
+      identification_method: detected.identification_method,
+      identification_confidence: detected.identification_confidence,
+    };
+    if (updatedKind !== record.kind) changes.kind = updatedKind;
+    await update("documents",documentId,changes);
+    return response({ok:true,kind:updatedKind,confidence:changes.identification_confidence,
+      note:changes.identification_note});
+  }
   if (path === "/admin/document") {
     const documentId = String(data.document_id || "");
     if (
