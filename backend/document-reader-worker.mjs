@@ -60,7 +60,7 @@ async function scanTwoAreas(image, labelPrefix) {
     regions.push({ area: labelPrefix + "_" + (i + 1), ...reading });
   }
 }
-async function pageContent(page, pdfjs, pageNumber) {
+async function pageContent(page) {
   const content = await page.getTextContent();
   const text = plainText(content.items);
   if (text.trim().length >= 30) {
@@ -81,10 +81,10 @@ try {
     const loadingTask = pdfjs.getDocument({data:new Uint8Array(bytes),isEvalSupported:false,useSystemFonts:true});
     const pdf = await loadingTask.promise;
     const firstPage = await pdf.getPage(1);
-    result = await pageContent(firstPage, pdfjs, 1);
+    result = await pageContent(firstPage);
     const isLicense = probableCNH(filename + " " + result.text);
     if (isLicense && pdf.numPages > 1) {
-      const second = await pageContent(await pdf.getPage(2), pdfjs, 2);
+      const second = await pageContent(await pdf.getPage(2));
       regions.push({area:"pdf_page_1",text:result.text,confidence:result.confidence});
       regions.push({area:"pdf_page_2",text:second.text,confidence:second.confidence});
       result.text = (result.text + " " + second.text).slice(0, maxText);
