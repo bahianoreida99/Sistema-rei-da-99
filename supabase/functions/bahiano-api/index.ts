@@ -23,6 +23,7 @@ const requiredFor = (lead: any): string[] =>
   lead.service === "documento" ? ["crlv"] : required;
 const docs: Record<string, string> = {
   cnh_frente: "CNH frente",
+  cnh_sem_lado: "CNH (lado a confirmar)",
   cnh_verso: "CNH verso",
   rg_frente: "RG frente",
   rg_verso: "RG verso",
@@ -290,6 +291,7 @@ function docType(s: string) {
   if (/comprovante|pix|pagamento/.test(x)) return "comprovante";
   if (/cnh/.test(x) && /verso|atr[aá]s/.test(x)) return "cnh_verso";
   if (/cnh/.test(x) && /frente/.test(x)) return "cnh_frente";
+  if (/\bcnh\b|carteira nacional de habilita/.test(x)) return "cnh_sem_lado";
   if (/rg/.test(x) && /verso|atr[aá]s/.test(x)) return "rg_verso";
   if (/rg/.test(x) && /frente/.test(x)) return "rg_frente";
   if (/crlv|documento do carro/.test(x)) return "crlv";
@@ -317,21 +319,26 @@ function identifyDocument(text: string, hint: string, confidence: number, method
       const family = license ? "cnh" : "rg";
       ambiguous = /frente/.test(clean) && /verso|atras/.test(clean);
       const side = /verso|atras/.test(clean) ? "verso" : /frente/.test(clean) ? "frente" : null;
-      if (ambiguous) note = "Frente e verso encontrados no mesmo arquivo. Confira e separe os lados.";
-      else if (side) kind = family + "_" + side;
-      else if (supplied.startsWith(family + "_")) kind = supplied;
-      else note = `${family.toUpperCase()} identificada. Confira e informe se é frente ou verso.`;
+      if (ambiguous) {
+        if (license) kind = "cnh_sem_lado";
+        note = "Há referências à frente e ao verso. Confirme qual lado foi enviado.";
+      } else if (side) kind = family + "_" + side;
+      else if (supplied.startsWith(family + "_") && supplied !== "cnh_sem_lado") kind = supplied;
+      else if (license) { kind = "cnh_sem_lado"; note = "CNH reconhecida. Confirme se é frente ou verso."; }
+      else note = "RG identificado. Confirme se é frente ou verso.";
     }
     if (pending && receipt) note = "Possível agendamento ou transferência pendente; não comprova pagamento realizado.";
     else if (families > 1) { ambiguous = true; note = "Mais de um tipo de documento encontrado; confira e separe os arquivos."; }
-    if (kind !== "outro") note = kind === "comprovante"
+    if (kind !== "outro" && kind !== "cnh_sem_lado") note = kind === "comprovante"
       ? "Comprovante identificado pela leitura do arquivo. Confira valor, destinatário e recebimento; não confirma pagamento."
       : "Tipo sugerido pela leitura do arquivo. A legibilidade e a validade exigem conferência.";
   }
   if (kind === "outro" && supplied !== "outro" && !ambiguous && !/agendad|pendente|nao realizad|cancelad|falhou|saldo insuficiente|qr code|cobranca/.test(clean)) {
     kind = supplied;
-    method = "caption";
-    note = "Tipo informado na mensagem ou nome do arquivo; conteúdo ainda exige conferência.";
+    method = "filename_or_caption";
+    note = supplied === "cnh_sem_lado"
+      ? "O nome do arquivo ou a legenda indicam CNH. Confirme frente ou verso e confira o conteúdo."
+      : "Tipo indicado pelo nome do arquivo ou legenda; conteúdo ainda exige conferência.";
   }
   return { kind, identification_method: method, identification_confidence: method === "caption" ? 0 : Math.max(0, Math.min(100, Math.round(confidence || 0))), identification_note: note };
 }
@@ -619,12 +626,14 @@ async function webhook(body: any) {
         ? "Não conseguimos registrar esse arquivo. Envie uma imagem JPG/PNG/WebP ou PDF de até 12 MB."
         : uploaded.kind === "comprovante"
           ? "Recebemos o comprovante. ✅ O Baiano vai conferir o valor, o destinatário e o recebimento. O pagamento continua pendente até a confirmação."
+          : uploaded.kind === "cnh_sem_lado"
+            ? "Recebemos sua CNH. ✅ Confirme por favor: essa é a *frente* ou o *verso*? O arquivo será conferido antes de validar."
           : uploaded.kind === "outro"
             ? "Recebemos o arquivo, mas precisamos confirmar o tipo ou o lado. Informe se é CNH frente/verso, CRLV ou selfie. Se estiver desfocado, envie uma nova foto nítida."
             : "Recebemos o arquivo! ✅ Identificamos: " + (docs[uploaded.kind] || uploaded.kind) + ". Vamos conferir a legibilidade e os dados antes de validar.",
       lead,
       "receipt:" + mid,
-      !uploaded ? "media_invalid" : uploaded.kind === "comprovante" ? "proof_received" : uploaded.kind === "outro" ? "media_unknown" : "media_identified",
+      !uploaded ? "media_invalid" : uploaded.kind === "comprovante" ? "proof_received" : ["outro","cnh_sem_lado"].includes(uploaded.kind) ? "media_unknown" : "media_identified",
       {documento: uploaded ? (docs[uploaded.kind] || uploaded.kind) : ""},
     );
   } else if (!p.hasMedia && proposed !== "outro" && proposed !== "comprovante") {
@@ -705,6 +714,7 @@ async function admin(req: Request, path: string) {
       ![
         "cnh_frente",
         "cnh_verso",
+        "cnh_sem_lado",
         "rg_frente",
         "rg_verso",
         "crlv",
@@ -721,7 +731,7 @@ async function admin(req: Request, path: string) {
       )
     )[0];
     if (!document) return response({ error: "Documento não encontrado" }, 404);
-    if (data.status === "verified" && data.kind === "outro")
+    if (data.status === "verified" && ["outro","cnh_sem_lado"].includes(data.kind))
       return response(
         { error: "Identifique o documento antes de validar" },
         409,
