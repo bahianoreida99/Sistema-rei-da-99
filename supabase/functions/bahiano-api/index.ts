@@ -429,9 +429,34 @@ async function webhook(body: any) {
   if (!["message", "message.any"].includes(body.event))
     return { ignored: true };
   const p = body.payload || {};
-  const chat = String(p.fromMe ? p.to : p.from || "");
+  const raw = String(p.fromMe ? p.to : p.from || "");
   const mid = typeof p.id === "string" ? p.id : String(p.id?._serialized || "");
-  if (!chat.endsWith("@c.us") || !mid) return { ignored: true };
+  if (!mid) return { ignored: true };
+  let chat = raw;
+  if (!p.fromMe && /^\\d{1,24}@lid$/.test(raw)) {
+    const key = p._data?.key;
+    const alternate = String(key?.remoteJidAlt || "");
+    if (key?.remoteJid === raw && /^\\d{10,15}@s\\.whatsapp\\.net$/.test(alternate)) {
+      chat = alternate.replace(/@s\\.whatsapp\\.net$/, "@c.us");
+    } else if (key?.remoteJid === raw && /^\\d{10,15}@c\\.us$/.test(alternate)) {
+      chat = alternate;
+    } else {
+      // Unknown LID: retain the webhook for retry instead of silently dropping it.
+      let mapped = "";
+      try {
+        const response = await fetch(wahaUrl + "/api/default/lids/" + encodeURIComponent(raw), {
+          headers: { "X-Api-Key": wahaKey }, signal: AbortSignal.timeout(5000),
+        });
+        if (response.ok) mapped = String((await response.json())?.pn || "");
+      } catch { console.warn("WhatsApp LID lookup unavailable"); }
+      chat = mapped.replace(/@s\\.whatsapp\\.net$/, "@c.us");
+      if (!/^\\d{10,15}@c\\.us$/.test(chat))
+        throw Error("WhatsApp Linked ID sem número verificado; processamento pendente");
+    }
+  } else if (!p.fromMe && /^\\d{10,15}@s\\.whatsapp\\.net$/.test(raw)) {
+    chat = raw.replace(/@s\\.whatsapp\\.net$/, "@c.us");
+  }
+  if (!/^\\d{10,15}@c\\.us$/.test(chat)) return { ignored: true };
   if (p.fromMe) {
     const contact = (
       await rows(
