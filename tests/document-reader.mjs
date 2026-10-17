@@ -82,6 +82,42 @@ if (process.argv[1]?.endsWith("document-reader.mjs")) {
   assert.equal(context.identify("", "foto qualquer.jpg", 42, "image_ocr").kind, "outro");
   assert.equal(context.identify("CARTEIRA NACIONAL DE HABILITACAO FRENTE Nome Registro", "", 87, "image_ocr").kind, "cnh_frente");
   assert.equal(context.identify("CARTEIRA NACIONAL DE HABILITACAO VERSO Observacoes", "", 87, "image_ocr").kind, "cnh_verso");
+  // A digital CNH can contain both sides in a single wide JPEG or PDF.
+  // Front and back must have independent OCR evidence in separate regions.
+  const combinedCanvas = (includeBack=true) => {
+    const canvas = createCanvas(1880, 920), ctx = canvas.getContext("2d");
+    ctx.fillStyle = "white";
+    ctx.fillRect(0,0,1880,920);
+    ctx.strokeStyle = "#555";
+    ctx.lineWidth = 3;
+    ctx.strokeRect(20,20,900,870);
+    if (includeBack) ctx.strokeRect(960,20,900,870);
+    ctx.fillStyle = "black";
+    ctx.font = "34px Arial";
+    const left = ["CNH DIGITAL", "CARTEIRA NACIONAL DE HABILITACAO", "NOME", "FILIAÇÃO", "DATA DE NASCIMENTO", "NATURALIDADE", "REGISTRO 000000"];
+    left.forEach((line,i) => ctx.fillText(line,50,115+i*85,830));
+    if (includeBack) {
+      const right = ["CNH DIGITAL", "OBSERVAÇÕES", "CATEGORIA DE HABILITAÇÃO", "QR CODE", "CÓDIGO DE SEGURANÇA", "ASSINATURA DO EMISSOR", "DOCUMENTO FICTÍCIO"];
+      right.forEach((line,i) => ctx.fillText(line,990,115+i*85,830));
+    }
+    return canvas.toBuffer("image/png");
+  };
+  const combined = await readDocument(combinedCanvas(), "image/png", {filename:"CNH DIGITAL - frente e verso.png"});
+  assert.equal(combined.regions.length,2,"OCR must read two halves separately");
+  const combinedKind=context.identify(combined.text,"CNH digital",combined.confidence,combined.method,combined.regions);
+  assert.equal(combinedKind.kind,"cnh_completa",JSON.stringify({
+    detected:combinedKind,
+    regions:combined.regions.map(r=>({area:r.area,confidence:Math.round(r.confidence),
+      hasFront:/NOME|NASCIMENTO/i.test(r.text),hasBack:/OBSERV|CATEGORIA|QR CODE/i.test(r.text)}))
+  }));
+  assert.equal(combinedKind.identification_method,"image_regions");
+  console.log("PASS real OCR: CNH digital front and back recognized in one synthetic image.");
+  const single=await readDocument(combinedCanvas(false),"image/png",{filename:"CNH DIGITAL - frente e verso.png"});
+  assert.notEqual(context.identify(single.text,"CNH DIGITAL frente e verso",single.confidence,single.method,single.regions).kind,
+    "cnh_completa","Filename alone must not create a double-sided document");
+  assert.notEqual(context.identify("CNH FRENTE E VERSO", "CNH digital", 99, "image_ocr",[]).kind,
+    "cnh_completa","Single OCR text alone must not prove two physical faces");
+  console.log("PASS negative OCR: file label cannot fabricate a missing side.");
   const batch = await Promise.all(Array.from({length:6},()=>readDocument(fixtureImage(cases[5][1]),"image/png")));
   assert.equal(batch.filter(result=>result.method==="busy").length,1,"OCR queue must be bounded");
   assert.equal(batch.filter(result=>context.identify(result.text,"",result.confidence,result.method).kind==="comprovante").length,5);
