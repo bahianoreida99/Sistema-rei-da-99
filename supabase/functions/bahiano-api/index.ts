@@ -209,7 +209,7 @@ const classify = (s: string) =>
       ? "uber"
       : "desconhecido";
 const isLead = (s: string) =>
-  /(uber|cnh|habilita|ear|cadastro|motorista|documento do carro|crlv|carro fora do ano|rodar|regulariz|or[cç]amento|pre[cç]o|\bREF\s*[:#-])/i.test(
+  /(uber|cnh|habilita|ear|cadastro|motorista|documento do carro|crlv|carro fora do ano|licenciamento|ve[ií]culo.{0,45}documento|documento.{0,45}ve[ií]culo|rodar|regulariz|or[cç]amento|pre[cç]o|\bREF\s*[:#-])/i.test(
     s,
   );
 const issue = (s: string) =>
