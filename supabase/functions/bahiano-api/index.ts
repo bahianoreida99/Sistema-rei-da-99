@@ -332,9 +332,18 @@ function isCompleteCnh(regions: OCRPart[], text: string, hint: string): boolean 
     .filter(r => Number(r.confidence || 0) >= 30 && String(r.text || "").trim().length >= 25)
     .map(r => {
       const v = normalizeOCR(String(r.text || ""));
-      return {front:markerCount(v, frontMarkers),back:markerCount(v,backMarkers)};
+      const area = String(r.area || "");
+      return {
+        front:markerCount(v, frontMarkers),
+        back:markerCount(v,backMarkers),
+        group:area.replace(/_[12]$/, ""),
+        area
+      };
     });
-  return scores.some((a,i) => a.front >= 2 && scores.some((b,j) => i!==j && b.back >= 2));
+  // The regions must belong to opposite halves of the SAME page layout.
+  // Mixing overlapping row and column crops could produce a false match.
+  return scores.some((a,i) => a.front >= 2 && scores.some((b,j) =>
+    i!==j && a.area!==b.area && a.group===b.group && b.back >= 2));
 }
 function hasDocKind(items: {kind: string;status?: string}[], kind: string, verifiedOnly=false): boolean {
   return items.some(d => (!verifiedOnly ? d.status !== "rejected" : d.status === "verified") &&
