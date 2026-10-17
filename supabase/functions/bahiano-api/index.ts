@@ -249,7 +249,7 @@ function initial(lead: any) {
 const automationRules = [
   { id: "welcome_uber", title: "Boas-vindas · conta Uber", trigger: "Primeiro contato identificado como cadastro Uber", message: initial({service:"uber"}).replace("R$ 350,00","{valor}"), variables: ["nome","valor"] },
   { id: "welcome_documento", title: "Boas-vindas · documento do carro", trigger: "Primeiro contato identificado como documento do carro", message: initial({service:"documento"}).replace("R$ 150,00","{valor}"), variables: ["nome","valor"] },
-  { id: "guidance_missing", title: "Solicitar documentos e e-mail", trigger: "Cliente responde ou pergunta sobre documentos e ainda há itens faltando", message: "Perfeito! Para continuar o atendimento, envie:\n{faltantes}\nEnvie uma foto nítida de cada lado. Se já enviou um arquivo sem identificação, informe o tipo e o lado.", variables:["nome","faltantes"] },
+  { id: "guidance_missing", title: "Solicitar documentos e e-mail", trigger: "Cliente responde ou pergunta sobre documentos e ainda há itens faltando", message: "OK! ✅ Para continuar, ainda faltam:\n{faltantes}\nEnvie um item por vez. Vamos atualizando a lista conforme recebermos.", variables:["nome","faltantes"] },
   { id: "guidance_complete", title: "Itens recebidos", trigger: "Cliente pergunta sobre documentos e todos os itens já foram recebidos", message:"Recebemos os itens solicitados. O Baiano vai conferir os documentos antes de liberar a produção.", variables:["nome"] },
   { id: "price", title: "Informar preço", trigger: "Cliente pergunta valor, preço, quanto custa", message:"O valor do serviço é {valor}. O pagamento acontece após a entrega do serviço contratado. O Baiano vai analisar os documentos antes de confirmar a viabilidade.", variables:["nome","valor"] },
   { id: "human", title: "Atendimento humano", trigger: "Cliente pede atendente, pessoa ou atendimento humano; automação é pausada", message:"Certo! Vou encaminhar seu atendimento ao Baiano. Você pode continuar conversando por aqui.", variables:["nome"] },
@@ -405,6 +405,39 @@ function identifyDocument(text: string, hint: string, confidence: number, method
   }
   return { kind, identification_method: method, identification_confidence: method === "caption" ? 0 : Math.max(0, Math.min(100, Math.round(confidence || 0))), identification_note: note };
 }
+
+/**
+ * Keep the document checklist in sync after EVERY accepted attachment or
+ * clarification. "Received" is not "verified": only a human may authorize
+ * production. A single received cnh_completa covers both CNH intake slots.
+ */
+async function sendDocumentProgress(
+  chat: string, lead: any, mid: string, confirmation: string, action = "progress",
+) {
+  const current = await rows("documents", "?lead_id=eq." + encodeURIComponent(lead.id) + "&select=kind,status");
+  const remaining = requiredFor(lead).filter(kind => !hasDocKind(current, kind));
+  const unresolvedCnh = current.some(d => d.kind === "cnh_sem_lado" && d.status !== "rejected");
+  const missing: string[] = [];
+  if (unresolvedCnh && remaining.includes("cnh_frente") && remaining.includes("cnh_verso")) {
+    missing.push("• Confirme a CNH recebida: digital com os dois lados, apenas frente ou apenas verso.");
+    for (const kind of remaining.filter(x => x !== "cnh_frente" && x !== "cnh_verso"))
+      missing.push("• " + docs[kind]);
+  } else {
+    for (const kind of remaining) missing.push("• " + docs[kind]);
+  }
+  if (!lead.email) missing.push("• E-mail");
+  const prefix = confirmation.trim() || "OK! ✅";
+  const message = missing.length
+    ? prefix + "\n\n*Para continuar, ainda faltam:*\n" +
+      missing.join("\n") +
+      "\n\nPode enviar um item por vez. Vou atualizar a lista a cada envio."
+    : prefix + "\n\n✅ *Recebemos todos os itens solicitados!* O Baiano vai conferir os documentos antes de validar e avançar o atendimento.";
+  await send(chat, message, lead, action + ":" + mid,
+    missing.length ? "guidance_missing" : "guidance_complete",
+    { faltantes: missing.join("\n") });
+  return { missing };
+}
+
 async function mediaUpload(p: any, lead: any, msg: any, kind: string) {
   const mime = String(p.media?.mimetype || p.media?.mimeType || "");
   const media = String(p.media?.url || "");
@@ -619,9 +652,11 @@ async function webhook(body: any) {
   const proposed = docType(message);
   // A reply such as "frente" refers only to one recently received CNH
   // whose family is known but whose side remains unconfirmed.
+  const reply = message.normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().trim().replace(/[.!?]+$/,"").replace(/\s+/g," ");
   const sideReply = !p.hasMedia
-    ? /^(?:(?:é|eh|e)\s+)?(?:a\s+)?(frente|verso|atr[aá]s)(?:\s+da\s+cnh)?[.!? ]*$/i.exec(message.trim())?.[1]?.toLowerCase() || ""
+    ? /^(?:(?:e|eh|essa e|esse e|o arquivo e)\s+)?(?:a\s+)?(frente|verso|atras)(?:\s+da\s+cnh)?$/.exec(reply)?.[1] || ""
     : "";
+  const digitalReply = !p.hasMedia && /^(?:(?:e|eh|isso e|ela e|a cnh e|o arquivo e)\s+)?(?:uma\s+)?(?:cnh\s+)?(?:digital|frente e verso|os dois lados|ambos os lados|com os dois lados|completo|completa)(?:\s+(?:com\s+)?(?:frente e verso|os dois lados))?$/.test(reply);
   const email = message.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0];
   if (email)
     lead = await update("leads", lead.id, { email: email.slice(0, 254) });
@@ -637,7 +672,7 @@ async function webhook(body: any) {
       proof_received_at: now,
     });
   if (p.hasMedia && !uploaded && !lead.automation_paused && await botOn(chat)) {
-    await send(chat,"Não conseguimos registrar esse arquivo. Envie uma imagem JPG/PNG/WebP ou PDF de até 12 MB.",lead,"receipt:"+mid,"media_invalid");
+    await sendDocumentProgress(chat,lead,mid,"Não conseguimos registrar esse arquivo. Envie uma imagem JPG/PNG/WebP ou PDF de até 12 MB.","receipt");
     return {lead_id:lead.id,stage:lead.stage,attachment_received:false};
   }
   if (proof && !lead.automation_paused && await botOn(chat)) {
@@ -688,57 +723,54 @@ async function webhook(body: any) {
       "human",
     );
   } else if (p.hasMedia) {
-    await send(
-      chat,
-      !uploaded
-        ? "Não conseguimos registrar esse arquivo. Envie uma imagem JPG/PNG/WebP ou PDF de até 12 MB."
-        : uploaded.kind === "comprovante"
-          ? "Recebemos o comprovante. ✅ O Baiano vai conferir o valor, o destinatário e o recebimento. O pagamento continua pendente até a confirmação."
-          : uploaded.kind === "cnh_completa"
-            ? "Recebemos sua *CNH digital com frente e verso no mesmo arquivo*. ✅ Agora o Baiano vai conferir o documento antes de validar."
-          : uploaded.kind === "cnh_sem_lado"
-            ? "Recebemos sua CNH. ✅ Confirme por favor: essa é a *frente* ou o *verso*? O arquivo será conferido antes de validar."
-          : uploaded.kind === "outro"
-            ? "Recebemos o arquivo, mas precisamos confirmar o tipo ou o lado. Informe se é CNH frente/verso, CRLV ou selfie. Se estiver desfocado, envie uma nova foto nítida."
-            : "Recebemos o arquivo! ✅ Identificamos: " + (docs[uploaded.kind] || uploaded.kind) + ". Vamos conferir a legibilidade e os dados antes de validar.",
-      lead,
-      "receipt:" + mid,
-      !uploaded ? "media_invalid" : uploaded.kind === "comprovante" ? "proof_received" : ["outro","cnh_sem_lado"].includes(uploaded.kind) ? "media_unknown" : "media_identified",
-      {documento: uploaded ? (docs[uploaded.kind] || uploaded.kind) : ""},
-    );
-  } else if (!p.hasMedia && ((proposed !== "outro" && proposed !== "comprovante") || sideReply)) {
-    const pending = await rows("documents", `?lead_id=eq.${lead.id}&status=eq.received&order=received_at.desc&limit=10`);
+    const confirmation = !uploaded
+      ? "Não conseguimos registrar esse arquivo. Envie uma imagem JPG/PNG/WebP ou PDF de até 12 MB."
+      : uploaded.kind === "comprovante"
+        ? "OK! ✅ Recebemos o comprovante, mas ele ainda precisa de conferência."
+        : uploaded.kind === "cnh_completa"
+          ? "OK! ✅ Recebemos sua CNH digital com frente e verso no mesmo arquivo. Ela ainda precisa de conferência."
+        : uploaded.kind === "cnh_sem_lado"
+          ? "OK! ✅ Recebemos sua CNH. Ela é digital (frente e verso no mesmo arquivo), apenas frente ou apenas verso? Responda para identificarmos corretamente."
+        : uploaded.kind === "outro"
+          ? "Recebemos o arquivo, mas precisamos confirmar o tipo. Informe se é CNH, CRLV ou selfie; ele não será validado antes da conferência."
+        : "OK! ✅ Recebemos: *" + (docs[uploaded.kind] || uploaded.kind) + "*. Aguardando conferência.";
+    await sendDocumentProgress(chat,lead,mid,confirmation,"receipt");
+  } else if (!p.hasMedia && ((proposed !== "outro" && proposed !== "comprovante") || sideReply || digitalReply)) {
+    const pending = await rows("documents", "?lead_id=eq." + encodeURIComponent(lead.id) + "&status=eq.received&order=received_at.desc&limit=20");
     const candidates = pending.filter((d: any) =>
-      sideReply ? d.kind === "cnh_sem_lado" : ["outro", "cnh_sem_lado"].includes(d.kind));
-    const resolvedKind = sideReply
-      ? (sideReply === "frente" ? "cnh_frente" : "cnh_verso")
+      digitalReply || sideReply ? d.kind === "cnh_sem_lado"
+      : proposed.startsWith("cnh_") ? ["outro","cnh_sem_lado"].includes(d.kind)
+      : d.kind === "outro");
+    const resolvedKind = digitalReply ? "cnh_completa"
+      : sideReply ? (sideReply === "frente" ? "cnh_frente" : "cnh_verso")
       : proposed;
-    if (
-      candidates.length === 1 &&
-      Date.now() - Date.parse(candidates[0].received_at) < 10 * 60 * 1000 &&
-      (resolvedKind !== "cnh_sem_lado" || candidates[0].kind === "outro")
-    ) {
+    if (candidates.length === 1 &&
+        Date.now() - Date.parse(candidates[0].received_at || 0) < 24 * 60 * 60 * 1000 &&
+        (resolvedKind !== "cnh_sem_lado" || candidates[0].kind === "outro")) {
+      const completeByClient = resolvedKind === "cnh_completa";
       await update("documents", candidates[0].id, {
         kind: resolvedKind,
         identification_method: "message_followup",
         identification_confidence: 0,
-        identification_note: "Lado ou tipo informado pelo cliente. Exige conferência humana.",
+        identification_note: completeByClient
+          ? "O cliente informou que o arquivo digital contém frente e verso. OCR não confirmou; revisão humana de ambas as faces obrigatória."
+          : "Tipo ou lado informado pelo cliente. Exige conferência humana.",
       });
-      await send(chat, "Obrigado! Registramos o arquivo como " + (docs[resolvedKind] || resolvedKind) +
-        ". O Baiano ainda vai conferir a legibilidade e os dados.",
-        lead, "identify-reply:" + mid, "identify_reply", {documento:docs[resolvedKind] || resolvedKind});
+      await sendDocumentProgress(chat,lead,mid,
+        "OK! ✅ Registramos o arquivo como *" + (docs[resolvedKind] || resolvedKind) +
+        "*. O Baiano ainda vai conferir a legibilidade e os dados.",
+        "identify-reply");
     } else {
-      await send(chat, "Para identificar corretamente, envie o arquivo com a legenda CNH frente ou CNH verso, ou confirme o lado da CNH mais recente.",
-        lead, "identify-reply:" + mid, "identify_unmatched");
+      await sendDocumentProgress(chat,lead,mid,
+        "Entendi! Não encontrei um único arquivo recente para associar essa informação. Envie o documento com uma legenda indicando o tipo.",
+        "identify-reply");
     }
-  } else if (firstReply || email || /documentos?|enviar|faltando/i.test(message)) {
-    const existingDocs = await rows("documents", `?lead_id=eq.${lead.id}&select=kind,status`);
-    const missing = requiredFor(lead).filter(kind => !hasDocKind(existingDocs, kind));
-    const list = missing.map(kind => "• " + docs[kind]);
-    if (!lead.email) list.push("• E-mail");
-    await send(chat, list.length ? "Perfeito! Para continuar o atendimento, envie:\n" + list.join("\n") + "\nEnvie uma foto nítida de cada lado. Se já enviou um arquivo sem identificação, informe o tipo e o lado." : "Recebemos os itens solicitados. O Baiano vai conferir os documentos antes de liberar a produção.", lead, "guidance:" + mid,list.length ? "guidance_missing" : "guidance_complete",{faltantes:list.join("\n")});
   } else if (/valor|pre[cç]o|quanto|custa/i.test(message)) {
     await send(chat, "O valor do serviço é " + (lead.service === "documento" ? "R$ 150,00" : "R$ 350,00") + ". O pagamento acontece após a entrega do serviço contratado. O Baiano vai analisar os documentos antes de confirmar a viabilidade.", lead, "price:" + mid,"price");
+  } else if (!p.hasMedia && (firstReply || email || message.trim())) {
+    await sendDocumentProgress(chat,lead,mid,
+      email ? "OK! ✅ Registrei seu e-mail." : "OK! ✅ Vou acompanhando os documentos enviados.",
+      "guidance");
   }
   return { lead_id: lead.id, stage: lead.stage };
 }
