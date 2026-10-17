@@ -703,6 +703,34 @@ for (const service of ["uber", "documento"]) {
   await req("webhook/waha", incoming("proof", "", true), hookHeaders);assert.equal(tables.documents.length,documentCount);assert.equal(journey.payment_status,"confirmed");
   console.log(`PASS complete ${service} journey: first/reply, unknown file, ${requiredKinds.length} documents, human validation, production, finish, scheduled proof rejected, OCR receipt without caption, delivery, manual payment, replay protection`);
 }
+// Regression: CNH picture recognised as a document family even at OCR 42%.
+tables.business_settings[0].value={enabled:true};
+const incidentChat="5511999996677@c.us";
+const incident=(id,body,filename)=>({
+  event:"message",session:"default",
+  payload:{from:incidentChat,id:"incident-"+id,fromMe:false,body,hasMedia:!!filename,
+    ...(filename?{media:{url:"https://waha.example/api/files/fixture.png",mimetype:"image/png",filename}}:{})}
+});
+await req("webhook/waha",incident("welcome","Cadastro Uber"),hookHeaders);
+const incidentLead=tables.leads.at(-1);
+await req("webhook/waha",incident("reply","Vou enviar os documentos"),hookHeaders);
+ocrResult={text:"pouco texto com ruido",confidence:42,method:"image_ocr"};
+await req("webhook/waha",incident("image","","CNH 01_09_26.jpg"),hookHeaders);
+const pendingCnh=tables.documents.at(-1);
+assert.equal(pendingCnh.kind,"cnh_sem_lado");
+assert.equal(pendingCnh.status,"received");
+assert.match(outbound.at(-1).text,/frente.*verso/);
+r=await req("admin/document",{lead_id:incidentLead.id,document_id:pendingCnh.id,kind:"cnh_sem_lado",status:"verified"},{authorization:"Bearer good"});
+assert.match(r.error,/Identifique/);
+assert.notEqual(incidentLead.stage,"producao");
+await req("webhook/waha",incident("side","É a frente"),hookHeaders);
+assert.equal(pendingCnh.kind,"cnh_frente");
+assert.equal(pendingCnh.status,"received");
+r=await req("admin/document",{lead_id:incidentLead.id,document_id:pendingCnh.id,kind:"cnh_verso",status:"received"},{authorization:"Bearer good"});
+assert.equal(r.ok,true);
+assert.equal(pendingCnh.kind,"cnh_verso");
+assert.equal(pendingCnh.status,"received");
+console.log("PASS: CNH sem lado identificada, cliente informa lado, revisão manual, sem validação automática.");
 env.BAHIANO_ADMIN_USER_ID=authUser.id;
 const originalAuth={...authUser};
 authUser={...authUser,email:"new-owner@example.invalid"};
