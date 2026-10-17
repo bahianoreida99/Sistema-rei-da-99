@@ -45,6 +45,7 @@ import DocumentPreview from "./document-preview";
 type Section = "dashboard" | "kanban" | "settings" | "automation";
 const docLabels: Record<string, string> = {
   cnh_frente: "CNH — frente",
+  cnh_sem_lado: "CNH — lado a confirmar",
   cnh_verso: "CNH — verso",
   rg_frente: "RG — frente",
   rg_verso: "RG — verso",
@@ -354,7 +355,7 @@ export default function Home() {
   const validateDocument = async (
     d: Doc,
     kind: string,
-    status: "verified" | "rejected",
+    status: "verified" | "rejected" | "received",
   ) => {
     const lead = leads.find((l) => l.id === d.lead_id);
     if (!lead) return;
@@ -364,7 +365,9 @@ export default function Home() {
       setNotice(
         status === "verified"
           ? "Documento validado."
-          : "Documento rejeitado. Solicite novo envio pelo chat.",
+          : status === "received"
+            ? "Tipo do arquivo alterado. Confira antes de validar."
+            : "Documento rejeitado. Solicite novo envio pelo chat.",
       );
     } catch (e) {
       setNotice(e instanceof Error ? e.message : "Falha na validação");
@@ -831,6 +834,20 @@ export default function Home() {
                               </span>
                             </div>
                           </div>
+                          {docsFor(l.id).some((d) => d.status !== "rejected") && (
+                            <div className="leadDocTypes" aria-label="Tipos de documentos recebidos">
+                              {docsFor(l.id).filter((d) => d.status !== "rejected").slice(0, 4).map((d) => (
+                                <span key={d.id}
+                                  className={"leadDocChip" + (["outro", "cnh_sem_lado"].includes(d.kind) ? " needSide" : "")}
+                                  title={docLabels[d.kind] || d.kind}>
+                                  {docLabels[d.kind] || d.kind}
+                                </span>
+                              ))}
+                              {docsFor(l.id).filter((d) => d.status !== "rejected").length > 4 && (
+                                <span className="leadDocChip">+{docsFor(l.id).filter((d) => d.status !== "rejected").length - 4}</span>
+                              )}
+                            </div>
+                          )}
                           {l.stage === "producao" && (
                             <button
                               className="startBtn"
@@ -1014,12 +1031,25 @@ export default function Home() {
                                 : "Aguardando conferência"}
                           </small>
                           {d.identification_note && <small>{d.identification_note}</small>}
+                          <label className="docKindLabel">
+                            Tipo do arquivo
+                            <select
+                              aria-label={"Classificação do arquivo " + (docLabels[d.kind] || d.kind)}
+                              value={d.kind}
+                              disabled={busy === d.id}
+                              onChange={(e) => void validateDocument(d, e.target.value, "received")}
+                            >
+                              {Object.entries(docLabels).map(([key, value]) => (
+                                <option key={key} value={key}>{value}</option>
+                              ))}
+                            </select>
+                          </label>
                           {
                             <div className="docVerify">
                               <button
                                 type="button"
-                                disabled={busy === d.id}
-                                title="Validar documento"
+                                disabled={busy === d.id || ["outro", "cnh_sem_lado"].includes(d.kind)}
+                                title={["outro", "cnh_sem_lado"].includes(d.kind) ? "Defina frente ou verso antes de validar" : "Validar documento"}
                                 onClick={() => void validateDocument(d, d.kind, "verified")}
                               >
                                 <Check size={13} />
