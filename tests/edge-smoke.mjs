@@ -733,6 +733,53 @@ assert.equal(r.ok,true);
 assert.equal(pendingCnh.kind,"cnh_verso");
 assert.equal(pendingCnh.status,"received");
 console.log("PASS: CNH sem lado identificada, cliente informa lado, revisão manual, sem validação automática.");
+// Composite CNH must be recognized from two independent OCR regions, not a caption.
+const bothChat="5511999996688@c.us";
+const bothEvent=(id,body,filename)=>({
+  event:"message",session:"default",
+  payload:{from:bothChat,id:"both-"+id,fromMe:false,body,hasMedia:!!filename,
+    ...(filename?{media:{url:"https://waha.example/api/files/fixture.png",mimetype:"image/png",filename}}:{})}
+});
+await req("webhook/waha",bothEvent("start","Cadastro Uber"),hookHeaders);
+const bothLead=tables.leads.at(-1);
+await req("webhook/waha",bothEvent("reply","Vou enviar"),hookHeaders);
+ocrResult={
+  text:"CARTEIRA NACIONAL DE HABILITACAO CNH DIGITAL",
+  confidence:84,method:"image_ocr",
+  regions:[
+    {area:"image_half_1",confidence:83,text:"CARTEIRA NACIONAL DE HABILITACAO NOME FILIACAO DATA DE NASCIMENTO"},
+    {area:"image_half_2",confidence:86,text:"CNH OBSERVACOES CATEGORIA DE HABILITACAO QR CODE CODIGO DE SEGURANCA"},
+  ]
+};
+await req("webhook/waha",bothEvent("image","","CNH DIGITAL.png"),hookHeaders);
+const bothDoc=tables.documents.at(-1);
+assert.equal(bothDoc.kind,"cnh_completa");
+assert.equal(bothDoc.status,"received");
+assert.match(outbound.at(-1).text,/frente e verso no mesmo arquivo/);
+r=await req("admin/missing",{lead_id:bothLead.id},{authorization:"Bearer good"});
+assert.ok(!JSON.stringify(r).includes("CNH frente"),"One combined received file fulfills both intake labels");
+assert.ok(!JSON.stringify(r).includes("CNH verso"),"No duplicate sides requested");
+r=await req("admin/document",{lead_id:bothLead.id,document_id:bothDoc.id,kind:"cnh_completa",status:"verified"},{authorization:"Bearer good"});
+assert.equal(r.ok,true);
+assert.equal(bothDoc.status,"verified");
+assert.notEqual(bothLead.stage,"producao","Other documents still required");
+ocrResult={text:"ruido pouco legivel",confidence:32,method:"image_ocr",regions:[]};
+await req("webhook/waha",bothEvent("rescan-file","","CNH digital recente.png"),hookHeaders);
+const rescanDoc=tables.documents.at(-1);
+assert.equal(rescanDoc.kind,"cnh_sem_lado");
+ocrResult={
+ text:"CNH DIGITAL",confidence:85,method:"image_ocr",
+ regions:[
+  {area:"image_half_1",confidence:88,text:"CARTEIRA NACIONAL DE HABILITACAO NOME FILIACAO DATA NASCIMENTO"},
+  {area:"image_half_2",confidence:89,text:"OBSERVACOES CATEGORIA HABILITACAO QR CODE CODIGO SEGURANCA"},
+ ]
+};
+r=await req("admin/reanalyze-document",{lead_id:bothLead.id,document_id:rescanDoc.id},{authorization:"Bearer good"});
+assert.equal(r.ok,true);
+assert.equal(rescanDoc.kind,"cnh_completa","Old upload can be rescanned by admin");
+assert.equal(rescanDoc.status,"received","Rescan never verifies documents");
+assert.notEqual(bothLead.stage,"producao");
+console.log("PASS: composite CNH, two faces in one file, no duplicate intake, manual verification, protected rescan.");
 env.BAHIANO_ADMIN_USER_ID=authUser.id;
 const originalAuth={...authUser};
 authUser={...authUser,email:"new-owner@example.invalid"};
