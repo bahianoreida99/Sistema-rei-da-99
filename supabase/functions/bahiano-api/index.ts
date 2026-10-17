@@ -24,6 +24,7 @@ const requiredFor = (lead: any): string[] =>
 const docs: Record<string, string> = {
   cnh_frente: "CNH frente",
   cnh_sem_lado: "CNH (lado a confirmar)",
+  cnh_completa: "CNH digital (frente e verso)",
   cnh_verso: "CNH verso",
   rg_frente: "RG frente",
   rg_verso: "RG verso",
@@ -289,6 +290,8 @@ async function automationSettings(req: Request) {
 function docType(s: string) {
   const x = s.toLowerCase();
   if (/comprovante|pix|pagamento/.test(x)) return "comprovante";
+  // A caption mentioning both sides cannot prove their presence.
+  if (/\\bcnh\\b/.test(x) && /frente/.test(x) && /verso|atr[aá]s/.test(x)) return "cnh_sem_lado";
   if (/cnh/.test(x) && /verso|atr[aá]s/.test(x)) return "cnh_verso";
   if (/cnh/.test(x) && /frente/.test(x)) return "cnh_frente";
   if (/\bcnh\b|carteira nacional de habilita/.test(x)) return "cnh_sem_lado";
@@ -298,9 +301,60 @@ function docType(s: string) {
   if (/selfie/.test(x)) return "selfie";
   return "outro";
 }
-function identifyDocument(text: string, hint: string, confidence: number, method: string) {
+
+type OCRPart = { area?: string; text?: string; confidence?: number };
+function normalizeOCR(value: string): string {
+  return String(value || "").normalize("NFD").replace(/[\\u0300-\\u036f]/g, "").toLowerCase();
+}
+function markerCount(value: string, markers: RegExp[]): number {
+  return markers.reduce((total, marker) => total + Number(marker.test(value)), 0);
+}
+/**
+ * A composite CNH must have TWO separately OCR'd regions with complementary
+ * front/back evidence. The filename, generic "frente e verso" caption or QR
+ * alone are insufficient. No document validity is established here.
+ */
+function isCompleteCnh(regions: OCRPart[], text: string, hint: string): boolean {
+  if (!Array.isArray(regions) || regions.length < 2) return false;
+  const main = normalizeOCR(text + " " + hint);
+  if (!/\\bcnh\\b|carteira nacional.{0,30}habilita/.test(main)) return false;
+  const frontMarkers = [
+    /\\bnome\\b/, /filiacao/, /data.{0,14}nascimento|nascimento/,
+    /identidade|doc\\.?\\s*ident/, /naturalidade/
+  ];
+  const backMarkers = [
+    /observacoes|restricoes/, /categoria.{0,18}habilit|categorias/,
+    /codigo.{0,15}seguranca/, /\\bqr\\s*code\\b|\\bqrcode\\b/,
+    /assinatura.{0,22}(?:emissor|portador|condutor)/,
+    /atividade.{0,15}remunerada/, /\\brenach\\b/
+  ];
+  const scores = regions
+    .filter(r => Number(r.confidence || 0) >= 30 && String(r.text || "").trim().length >= 25)
+    .map(r => {
+      const v = normalizeOCR(String(r.text || ""));
+      return {front:markerCount(v, frontMarkers),back:markerCount(v,backMarkers)};
+    });
+  return scores.some((a,i) => a.front >= 2 && scores.some((b,j) => i!==j && b.back >= 2));
+}
+function hasDocKind(items: {kind: string;status?: string}[], kind: string, verifiedOnly=false): boolean {
+  return items.some(d => (!verifiedOnly ? d.status !== "rejected" : d.status === "verified") &&
+    (d.kind === kind || (
+      d.kind === "cnh_completa" && (kind === "cnh_frente" || kind === "cnh_verso")
+    )));
+}
+
+function identifyDocument(text: string, hint: string, confidence: number, method: string, regions: OCRPart[] = []) {
   const clean = text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
   const supplied = docType(hint);
+  if (isCompleteCnh(regions, text, hint)) {
+    const scores = regions.map(r => Number(r.confidence || 0)).filter(n => n > 0);
+    return {
+      kind: "cnh_completa",
+      identification_method: method === "pdf_text" || method === "pdf_ocr" ? "pdf_regions" : "image_regions",
+      identification_confidence: Math.max(0, Math.min(100, Math.round(scores.reduce((a,b)=>a+b,0) / Math.max(1,scores.length)))),
+      identification_note: "Duas regiões da CNH reconhecidas como frente e verso. Confira os dados e a autenticidade antes de validar.",
+    };
+  }
   let kind = "outro";
   let ambiguous = false;
   let note = "Não foi possível identificar com segurança. Confira o arquivo e informe o tipo.";
@@ -391,9 +445,9 @@ async function mediaUpload(p: any, lead: any, msg: any, kind: string) {
     return (await rows("documents", "?message_id=eq." + msg.id + "&select=*"))[0];
   const reader = (globalThis as any).BahianoReadDocument;
   const read = typeof reader === "function"
-    ? await reader(data, mime)
+    ? await reader(data, mime, { filename: String(p.media?.filename || "") })
     : { text: "", confidence: 0, method: "unavailable" };
-  const detected = identifyDocument(String(read.text || ""), String(p.body || "") + " " + String(p.media?.filename || ""), Number(read.confidence || 0), String(read.method || "unavailable"));
+  const detected = identifyDocument(String(read.text || ""), String(p.body || "") + " " + String(p.media?.filename || ""), Number(read.confidence || 0), String(read.method || "unavailable"), Array.isArray(read.regions) ? read.regions : []);
   if (Number(read.pages) > 1) detected.identification_note += " A leitura automática considerou apenas a primeira página; confira todas as páginas.";
   // Preserve explicit selfie labels; OCR cannot establish identity or authenticity.
   if (kind === "selfie" && detected.kind === "outro") detected.kind = "selfie";
@@ -631,6 +685,8 @@ async function webhook(body: any) {
         ? "Não conseguimos registrar esse arquivo. Envie uma imagem JPG/PNG/WebP ou PDF de até 12 MB."
         : uploaded.kind === "comprovante"
           ? "Recebemos o comprovante. ✅ O Baiano vai conferir o valor, o destinatário e o recebimento. O pagamento continua pendente até a confirmação."
+          : uploaded.kind === "cnh_completa"
+            ? "Recebemos sua *CNH digital com frente e verso no mesmo arquivo*. ✅ Agora o Baiano vai conferir o documento antes de validar."
           : uploaded.kind === "cnh_sem_lado"
             ? "Recebemos sua CNH. ✅ Confirme por favor: essa é a *frente* ou o *verso*? O arquivo será conferido antes de validar."
           : uploaded.kind === "outro"
@@ -668,7 +724,7 @@ async function webhook(body: any) {
     }
   } else if (firstReply || email || /documentos?|enviar|faltando/i.test(message)) {
     const existingDocs = await rows("documents", `?lead_id=eq.${lead.id}&select=kind,status`);
-    const missing = requiredFor(lead).filter(kind => !existingDocs.some(d => d.kind === kind && d.status !== "rejected"));
+    const missing = requiredFor(lead).filter(kind => !hasDocKind(existingDocs, kind));
     const list = missing.map(kind => "• " + docs[kind]);
     if (!lead.email) list.push("• E-mail");
     await send(chat, list.length ? "Perfeito! Para continuar o atendimento, envie:\n" + list.join("\n") + "\nEnvie uma foto nítida de cada lado. Se já enviou um arquivo sem identificação, informe o tipo e o lado." : "Recebemos os itens solicitados. O Baiano vai conferir os documentos antes de liberar a produção.", lead, "guidance:" + mid,list.length ? "guidance_missing" : "guidance_complete",{faltantes:list.join("\n")});
@@ -737,6 +793,7 @@ async function admin(req: Request, path: string) {
         "cnh_frente",
         "cnh_verso",
         "cnh_sem_lado",
+        "cnh_completa",
         "rg_frente",
         "rg_verso",
         "crlv",
@@ -781,7 +838,7 @@ async function admin(req: Request, path: string) {
         "?lead_id=eq." + id + "&status=eq.verified&select=kind",
       );
       if (
-        requiredFor(lead).every((kind) => verified.some((d) => d.kind === kind))
+        requiredFor(lead).every((kind) => hasDocKind(verified.map(d => ({...d,status:"verified"})),kind,true))
       )
         return admin(
           new Request(req.url, {
