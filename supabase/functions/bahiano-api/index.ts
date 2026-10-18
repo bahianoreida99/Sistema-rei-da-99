@@ -252,10 +252,10 @@ function helloLine(name: string): string {
   return name ? "Oi, " + name + "! Tudo bem? 😊" : "Oi! Tudo bem? 😊";
 }
 function isGreetingOnly(value: string): boolean {
-  return /^(?:oi+|ola+|opa|e ai|fala|bom dia|boa tarde|boa noite|tudo bem|como vai|oi tudo bem|ola tudo bem|bom dia tudo bem|boa tarde tudo bem|boa noite tudo bem)$/.test(normalizeConversation(value));
+  return /^(?:oi+|ola+|opa|e ai|fala|bom dia|boa tarde|boa noite|tudo bem|como vai|oi tudo bem|ola tudo bem|oi bom dia|ola bom dia|oi boa tarde|ola boa tarde|oi boa noite|ola boa noite|bom dia tudo bem|boa tarde tudo bem|boa noite tudo bem)$/.test(normalizeConversation(value));
 }
 function isSmallTalkFollowup(value: string): boolean {
-  return /^(?:e voce|e vc|tudo bem e voce|tudo certo e voce|bem e voce|tudo otimo e voce|tudo otimo|tudo certo|estou bem|to bem|tambem|obrigado|obrigada)$/.test(normalizeConversation(value));
+  return /^(?:tudo bem|e voce|e vc|tudo bem e voce|tudo certo e voce|bem e voce|tudo otimo e voce|tudo otimo|tudo certo|estou bem|to bem|tambem|obrigado|obrigada)$/.test(normalizeConversation(value));
 }
 function isCuriosity(value: string): boolean {
   return /(?:como funciona|me explica|quero saber mais|tenho interesse|mais informacoes|informacoes sobre|quero ajuda|preciso de ajuda|quero atendimento|quero entender|me fala sobre|pode me explicar|qual o valor|quanto custa|quanto fica|preco|valor do servico|orcamento|quero contratar|quero fazer|preciso resolver)/.test(normalizeConversation(value));
@@ -282,7 +282,7 @@ function isSimpleYes(value: string): boolean {
   return /^(?:sim|s|ok|okay|pode|pode ser|claro|beleza|fechado|certo|isso|bora|quero|vamos|concordo|de acordo|manda|pode mandar|ta bom|show|blz|perfeito|positivo)$/.test(normalizeConversation(value));
 }
 function isExplicitConsent(value: string): boolean {
-  return /(?:quero seguir|pode seguir|pode continuar|vamos continuar|quero contratar|quero prosseguir|pode prosseguir|estou de acordo|concordo com o valor|pode mandar os documentos|pode enviar os documentos|manda a lista|envia a lista|quero iniciar|pode iniciar|quero dar andamento|vamos em frente|pode tocar)/.test(normalizeConversation(value));
+  return /(?:quero seguir|pode seguir|pode continuar|vamos continuar|quero contratar|quero prosseguir|pode prosseguir|estou de acordo|concordo|aceito|vou enviar os documentos|envie a relacao de documentos|relacao de documentos|pode mandar|pode enviar|manda a lista|envia a lista|quero iniciar|pode iniciar|quero dar andamento|vamos em frente|pode tocar)/.test(normalizeConversation(value));
 }
 function isNegative(value: string): boolean {
   return /^(?:nao|agora nao|nao quero|depois|vou pensar|mais tarde|so estava perguntando|so queria saber)$/.test(normalizeConversation(value));
