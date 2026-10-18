@@ -5,6 +5,7 @@
  * paths: user JWT verified against Supabase Auth for /admin/* and a private
  * webhook token verified for /webhook/waha. No route performs writes unauthenticated.
  */
+import { createMediaBridge } from "./automation-media.ts";
 const E = Deno.env;
 const url = E.get("SUPABASE_URL") || "";
 const dbKey = E.get("SUPABASE_SERVICE_ROLE_KEY") || "";
@@ -202,6 +203,7 @@ async function send(
       await update("messages", existing.id, { action_key: actionKey });
   }
 }
+const {sendMedia,mediaRoute}=createMediaBridge({rows,insert,checkAdmin,response,up,apiHeaders,url,dbKey,wahaUrl,wahaKey});
 const classify = (s: string) =>
   /(documento do carro|crlv|licenciamento|ve[ií]culo|carro fora do ano)/i.test(
     s,
@@ -577,6 +579,7 @@ async function sendDocumentProgress(
   await send(chat, message, lead, action + ":" + mid,
     missing.length ? "guidance_missing" : "guidance_complete",
     { faltantes: missing.join("\n") });
+  if (!missing.length) await sendMedia(chat,lead,"complete_audio","media:complete:"+lead.id);
   return { missing };
 }
 
@@ -1102,6 +1105,7 @@ async function webhook(body: any) {
     } else if (isExplicitConsent(message)) {
       const updatedLead = await update("leads", lead.id, { conversation_state: "collecting_documents" });
       lead = updatedLead || { ...lead, conversation_state: "collecting_documents" };
+      await sendMedia(chat,lead,"intro_audio","media:intro:"+lead.id);
       await send(chat,documentChecklist(lead,contact),lead,"sales:documents:"+mid,"sales_documents",{
         nome:firstName(contact.display_name || lead.display_name) || "",
         documentos:requiredFor(lead).map((kind)=>"• "+docs[kind]).join("\n"),
@@ -1122,6 +1126,7 @@ async function webhook(body: any) {
     if (isExplicitConsent(message) || isSimpleYes(message)) {
       const updatedLead = await update("leads", lead.id, { conversation_state: "collecting_documents" });
       lead = updatedLead || { ...lead, conversation_state: "collecting_documents" };
+      await sendMedia(chat,lead,"intro_audio","media:intro:"+lead.id);
       await send(chat,documentChecklist(lead,contact),lead,"sales:documents:"+mid,"sales_documents",{
         nome:firstName(contact.display_name || lead.display_name) || "",
         documentos:requiredFor(lead).map((kind)=>"• "+docs[kind]).join("\n"),
@@ -1724,6 +1729,9 @@ Deno.serve(async (req) => {
   if (p === "/pixel.js" && req.method === "GET") {
     const script = (globalThis as any).BahianoPixelScript;
     try {return new Response(typeof script === "function" ? await script() : "/* indisponível */", {headers:{"content-type":"application/javascript", "cache-control":"no-store",...cors}});} catch {return new Response("/* Pixel temporariamente indisponível */",{status:503,headers:{"content-type":"application/javascript",...cors}});}
+  }
+  if (p === "/admin/media" || p === "/admin/media/upload") {
+    try {return await mediaRoute(req,p);} catch {return response({error:"Falha na mídia da automação"},503);}
   }
   if (p === "/admin/automation") {
     try { return await automationSettings(req); } catch { return response({error:"Não foi possível acessar a automação"},503); }
