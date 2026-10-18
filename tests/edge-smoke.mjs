@@ -394,6 +394,60 @@ assert.equal(leadForChat(upgradeChat).source,"site");
 assert.equal(leadForChat(upgradeChat).stage,"conversando","existing lead moves into conversation without losing ad attribution");
 console.log("PASS: first-contact routing, WAHA app ignored as source, Meta referral, site attribution, 10-day generic silence and Uber exception.");
 
+// Regression for real conversation: "Olá tudo bem?", then "Conta uber,
+// estou sem EAR na CNH", then "Conta uber". A known Uber lead must not
+// repeatedly offer Uber/CRLV service selection.
+const stuckChat="5511999991058@c.us";
+const stuckContactId="00000000-0000-4000-8000-000000000858";
+const stuckLeadId="00000000-0000-4000-8000-000000000859";
+tables.contacts.push({
+  id:stuckContactId,chat_id:stuckChat,phone:stuckChat.split("@")[0],
+  display_name:"Contato teste",classification:"lead",manual_override:false,
+  last_message_at:new Date().toISOString()
+});
+tables.leads.push({
+  id:stuckLeadId,contact_id:stuckContactId,phone:stuckChat.split("@")[0],
+  display_name:"Contato teste",service:"uber",source:"whatsapp",stage:"conversando",
+  conversation_state:"discover_service",conversation_context:{},issue:null,
+  automation_paused:false,welcome_sent_at:new Date().toISOString(),first_reply_at:new Date().toISOString(),
+  price_cents:35000
+});
+let messagesBefore=outbound.length;
+r=await req("webhook/waha",routedMessage("stuck-greeting",stuckChat,"Olá tudo bem?"),hookHeaders);
+assert.equal(r.quiet_recent_contact,true,"repeat greeting within 10 days must be silent");
+assert.equal(outbound.length,messagesBefore);
+r=await req("webhook/waha",routedMessage("stuck-issue",stuckChat,"Conta uber, estou sem ear na cnh"),hookHeaders);
+assert.equal(r.qualified_service,"uber");
+const stuckLead=leadForChat(stuckChat);
+assert.equal(stuckLead.issue,"CNH sem EAR");
+assert.equal(stuckLead.conversation_state,"offer_consent");
+assert.equal(outbound.length,messagesBefore+1);
+assert.match(outbound.at(-1).text,/CNH sem EAR/);
+assert.match(outbound.at(-1).text,/R\$ 350,00/);
+assert.doesNotMatch(outbound.at(-1).text,/Qual delas você precisa resolver|Hoje atendemos duas situações|R\$ 150,00/);
+r=await req("webhook/waha",routedMessage("stuck-again",stuckChat,"Conta uber"),hookHeaders);
+assert.equal(outbound.length,messagesBefore+2);
+assert.doesNotMatch(outbound.at(-1).text,/Qual delas você precisa resolver|Hoje atendemos duas situações/);
+const knownChat="5511999991059@c.us",knownContactId="00000000-0000-4000-8000-000000000860";
+tables.contacts.push({
+  id:knownContactId,chat_id:knownChat,phone:knownChat.split("@")[0],
+  display_name:"Contato conhecido",classification:"lead",manual_override:false,
+  last_message_at:new Date().toISOString()
+});
+tables.leads.push({
+  id:"00000000-0000-4000-8000-000000000861",contact_id:knownContactId,phone:knownChat.split("@")[0],
+  service:"uber",source:"whatsapp",stage:"conversando",conversation_state:"discover_service",
+  conversation_context:{},issue:null,automation_paused:false,
+  welcome_sent_at:new Date().toISOString(),first_reply_at:new Date().toISOString(),price_cents:35000
+});
+r=await req("webhook/waha",routedMessage("known-uber",knownChat,"Conta uber"),hookHeaders);
+assert.equal(r.qualified_service,"uber");
+assert.equal(leadForChat(knownChat).conversation_state,"qualify_uber");
+assert.match(outbound.at(-1).text,/R\$ 350,00/);
+assert.doesNotMatch(outbound.at(-1).text,/Qual delas você precisa resolver|R\$ 150,00/);
+console.log("PASS: known Uber case leaves discover_service, remembers EAR issue, does not re-greet/re-list services, keeps legitimate qualification.");
+
+
 const countBeforePersonal=tables.leads.length;
 tables.contacts.push({
   id: "00000000-0000-4000-8000-000000000999",
@@ -935,8 +989,9 @@ assert.equal(progressLead.email,"cliente.teste@example.invalid");
 assert.match(outbound.at(-1).text,/Recebemos todos os itens solicitados/i);
 assert.equal(progressLead.stage,"conversando","Never automatically start production");
 assert.notEqual(progressCnh.status,"verified");
-assert.equal((await progressCall("extra","Obrigado")).stage,"conversando");
-assert.match(outbound.at(-1).text,/Recebemos todos os itens solicitados/i);
+const beforeExtraGreeting=outbound.length;
+assert.equal((await progressCall("extra","Obrigado")).quiet_recent_contact,true);
+assert.equal(outbound.length,beforeExtraGreeting,"Generic thanks must not repeat the review-status reply");
 progressSelfie.status="rejected";
 await progressCall("rejected","OK");
 assert.match(outbound.at(-1).text,/• selfie com fundo branco/);
