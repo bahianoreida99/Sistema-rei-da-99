@@ -416,7 +416,7 @@ function asksHow(value: string): boolean {
   return /(?:como funciona|como e o processo|me explica|o que esta incluso|o que inclui|como voces fazem|como e feito|como comeca|quais sao os passos)/.test(normalizeConversation(value));
 }
 function asksTiming(value: string): boolean {
-  return /(?:quanto tempo|qual o prazo|prazo|demora|quando fica pronto|fica pronto hoje|e rapido|em quanto tempo)/.test(normalizeConversation(value));
+  return /(?:quanto tempo|previsao|qual o prazo|prazo|demora|quando fica pronto|fica pronto hoje|e rapido|em quanto tempo)/.test(normalizeConversation(value));
 }
 function asksGuarantee(value: string): boolean {
   return /(?:garante|garantia|garantido|aprova|aprovacao|certeza que|vai dar certo|promete)/.test(normalizeConversation(value));
@@ -469,14 +469,14 @@ function contextualReply(message:string,lead:any,messageId:string):ContextualAns
   const price=lead.service==="documento"?"R$ 150,00":lead.service==="uber"?"R$ 350,00":null;
   const kinds:ReplyIntent[]=[];
   if(isPriceObjection(message) || /(?:ta puxado|salgado|absurdo esse valor|muito dinheiro|achei salgado|carissimo|caro pra mim)/.test(text)) kinds.push("objection");
-  else if(asksPrice(message) || /(?:qnt|qto|qt|quanto voces cobram|qual o investimento|valores|precos|custos|fica em quanto|preco final)/.test(text)) kinds.push("price");
+  else if(asksPrice(message) || /(?:qnt|qto|qt|quanto voces cobram|quanto vcs cobram|quanto vc cobra|tem algum custo|quanto pra|quanto e|qual o investimento|valores|precos|custos|fica em quanto|preco final)/.test(text)) kinds.push("price");
   if(asksTiming(message) || /(?:hoje ainda|ate quando|pra ontem|urgente|urgencia|em minutos|em horas|tempo pra liberar|tempo de analise)/.test(text)) kinds.push("timing");
-  if(asksGuarantee(message) || /(?:garantem|se nao der certo|se der errado|vai funcionar|taxa de sucesso|certeza absoluta|garantido)/.test(text)) kinds.push("guarantee");
+  if(asksGuarantee(message) || /(?:garantem|certeza|se nao der certo|se der errado|vai funcionar|taxa de sucesso|certeza absoluta|garantido)/.test(text)) kinds.push("guarantee");
   if(asksDocuments(message) || /(?:precisa de rg|preciso de rg|lista de arquivos|papelada|copia da cnh|foto do crlv|precisa de selfie|manda quais|documentos necessarios)/.test(text)) kinds.push("documents");
-  if(/(?:sigilo|vazamento|lgpd|usam meus dados|dados pessoais|documento e seguro|pedem senha|precisa da senha|pedem codigo|golpe|confiavel|privacidade)/.test(text)) kinds.push("security");
+  if(/(?:sigilo|seguro|meus dados|vazamento|lgpd|usam meus dados|dados pessoais|documento e seguro|pedem senha|precisa da senha|pedem codigo|golpe|confiavel|privacidade)/.test(text)) kinds.push("security");
   if(/(?:como ta meu pedido|como anda|em que fase|status|acompanhar|alguma novidade|ja terminou|ta pronto|ja ficou pronto|andamento|atualizacao do processo)/.test(text)) kinds.push("progress");
   if(/(?:pago depois|paga depois|so paga depois|pagamento na entrega|boleto|cartao|aceita pix|aceitam pix|parcelas|parcela|forma de pagar|como fazer pix|adiantamento|sinal)/.test(text)) kinds.push("payment");
-  if(/(?:foto borrada|foto embaçada|foto ruim|arquivo nao abre|arquivo nao carrega|nao consigo enviar|imagem ilegivel|print serve|imagem serve)/.test(text)) kinds.push("quality");
+  if(/(?:foto borrada|foto embacada|foto ruim|arquivo nao abre|arquivo nao carrega|nao consigo enviar|imagem ilegivel|print serve|imagem serve)/.test(text)) kinds.push("quality");
   if(/(?:atendente|falar com alguem|falar com uma pessoa|suporte humano|chamar o baiano)/.test(text)) kinds.push("support");
   if(/(?:sem ear|cnh vencida|conta banida|conta bloqueada|fora do ano|cadastro recusado|conta desativada|cnh provisoria|permissao para dirigir|requisitos da uber|aprovacao da uber)/.test(text) &&
       (isQuestion || /(?:minha|meu|estou|tenho|fui)/.test(text))) kinds.push("eligibility");
