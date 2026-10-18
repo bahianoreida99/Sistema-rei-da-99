@@ -888,6 +888,42 @@ async function sendDocumentProgress(
   }
   return {missing};
 }
+
+const BATCH_IDLE_MS = 300_000;
+const batchYes = (value:string) => /^(?:sim|s|pronto|prontinho|terminei|finalizei|enviei tudo|ja enviei tudo|confirmo|pode seguir|todos enviados)[.! ]*$/.test(normalizeConversation(value));
+const batchNo = (value:string) => /^(?:nao|n|ainda nao|falta|vou mandar mais|espera|aguarda)[.! ]*$/.test(normalizeConversation(value));
+function refreshedBatch(context:any,at:string) {
+  return {...(context||{}),batch_last_activity_at:at,
+    batch_revision:Number(context?.batch_revision||0)+1,
+    batch_has_uploads:true,batch_question_sent_at:null,batch_confirmed_at:null};
+}
+async function checkIdleBatches(nowMs=Date.now()) {
+  const leads=await rows("leads","?conversation_state=eq.collecting_documents&order=updated_at.asc&limit=150&select=*");
+  let asked=0;
+  for(const lead of leads) {
+    const c=lead.conversation_context||{};
+    const at=Date.parse(String(c.batch_last_activity_at||""));
+    if(!c.batch_has_uploads || !Number.isFinite(at) ||
+      nowMs-at<BATCH_IDLE_MS || nowMs-at>86400000 ||
+      c.batch_question_sent_at || lead.automation_paused ||
+      ["producao","finalizados","pagos"].includes(lead.stage))continue;
+    const contact=await getContact(lead.contact_id);
+    const chat=String(contact?.chat_id||"");
+    if(!chat || !(await botOn(chat)))continue;
+    const current=await getLead(lead.id);
+    if(current?.conversation_context?.batch_last_activity_at!==c.batch_last_activity_at ||
+      current?.conversation_context?.batch_question_sent_at)continue;
+    const key="batch:confirm:"+lead.id+":"+String(c.batch_revision);
+    await send(chat,"Confirma pra mim: você já enviou todos os documentos?\n\nResponda *SIM* se terminou ou *NÃO* se ainda vai enviar mais algum.",lead,key);
+    await update("leads",lead.id,{conversation_context:{
+      ...(current?.conversation_context||c),
+      batch_question_sent_at:new Date(nowMs).toISOString()
+    }});
+    asked++;
+  }
+  return {asked};
+}
+
 async function mediaUpload(p: any, lead: any, msg: any, kind: string) {
   const mime = String(p.media?.mimetype || p.media?.mimeType || "");
   const media = String(p.media?.url || "");
