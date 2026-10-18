@@ -381,59 +381,99 @@ async function postConversation(id,chat,body,name) {
 }
 const conversationReports=[];
 const conversationTypes=[
-  {first:"Oi",second:"Quero criar conta Uber",third:"Do zero",fourth:"Pode seguir",service:"uber",final:"documentos"},
-  {first:"Olá, bom dia",second:"Preciso do CRLV",third:"O documento está vencido",fourth:"Pode seguir",service:"documento",final:"documentos"},
-  {first:"Quanto custa?",second:"Uber",third:"Já tenho uma conta bloqueada",fourth:"Concordo, pode mandar os documentos",service:"uber",final:"documentos"},
-  {first:"Quero ajuda com minha conta Uber",second:"Minha CNH venceu",third:"Quanto tempo demora?",fourth:"Pode seguir",service:"uber",final:"documentos"},
-  {first:"Preciso de ajuda com documento do carro CRLV",second:"Tenho uma pendência no licenciamento",third:"Não",fourth:"Pode seguir",service:"documento",final:"documentos"},
+  {name:"greeting to Uber",service:"uber"},
+  {name:"greeting to CRLV",service:"documento"},
+  {name:"price question to Uber",service:"uber"},
+  {name:"direct Uber qualification and FAQ",service:"uber"},
+  {name:"direct CRLV qualification and objection",service:"documento"},
 ];
+const greetingVariants=["Oi","Olá, bom dia","Boa tarde","Oi, tudo bem?","E aí","Bom dia","Boa noite","Opa","Olá","Fala"];
+const uberServiceVariants=[
+  "Quero criar conta Uber","Preciso de cadastro Uber","Quero fazer uma conta na Uber",
+  "Me ajuda com a conta Uber","Quero trabalhar de Uber","Preciso regularizar meu cadastro Uber",
+  "Quero entrar na Uber","Tenho interesse no cadastro Uber","Quero resolver problema na conta Uber",
+  "Ajuda com cadastro de motorista Uber"
+];
+const carServiceVariants=[
+  "Preciso do CRLV","Preciso do documento do carro","Quero resolver uma pendência no licenciamento do carro",
+  "Preciso regularizar o documento do veículo","Tenho problema com CRLV","Quero ajuda com o documento do carro",
+  "O licenciamento do carro está pendente","Preciso de ajuda com o CRLV","Documento do carro, por favor",
+  "Meu veículo precisa do documento"
+];
+const uberAnswers=[
+  "Do zero","Quero criar uma conta nova","É a primeira vez","Já tenho uma conta bloqueada",
+  "Minha CNH venceu","Estou sem EAR","Não consigo entrar na conta","Minha conta foi suspensa",
+  "Minha conta está bloqueada","Ainda não tenho conta"
+];
+const carAnswers=[
+  "O documento está vencido","Tenho uma pendência no licenciamento","Preciso regularizar o CRLV",
+  "O CRLV está vencido","Está com restrição no documento","Meu documento venceu",
+  "Preciso atualizar o documento do carro","O licenciamento está pendente","O documento está atrasado",
+  "Tenho problema no CRLV"
+];
+const consentVariants=["Pode seguir","Sim","Ok","Pode mandar os documentos","Concordo","Quero seguir","Estou de acordo","Bora","Fechado","Pode enviar os documentos"];
+const faqVariants=["Quanto tempo demora?","Como funciona?","E se não der certo?","Posso enviar a CNH digital?","É garantido?","Qual o prazo?","O que está incluído?","Tem aprovação garantida?","Pode me explicar melhor?","E se a Uber não aprovar?"];
+const objectionVariants=["Não","Agora não","Estou com dúvida","Quanto custa?","Pode me explicar melhor?","Achei caro","Como funciona?","E se não der certo?","Qual o prazo?","Vou pensar"];
 for(let i=0;i<1000;i++){
   const chat=digits(30+Math.floor(i/100),i%100);
   const name=conversationNames[i%conversationNames.length];
   const first=expectedFirstName(name);
-  const scenario=conversationTypes[i%conversationTypes.length];
+  const mode=i%5, v=Math.floor(i/5);
+  const greet=greetingVariants[(i*7+v)%greetingVariants.length];
+  const uber=uberServiceVariants[(i*3+v*7)%uberServiceVariants.length];
+  const car=carServiceVariants[(i*7+v*3)%carServiceVariants.length];
+  const uberAnswer=uberAnswers[(i*9+v*3)%uberAnswers.length];
+  const carAnswer=carAnswers[(i*7+v*9)%carAnswers.length];
+  const consent=consentVariants[(i*3+v*7)%consentVariants.length];
+  const scenario=mode===0
+    ? {first:greet,second:uber,third:uberAnswer,fourth:consent,service:"uber",greetingFirst:true,ambiguousFirst:false}
+    : mode===1
+      ? {first:greet,second:car,third:carAnswer,fourth:consent,service:"documento",greetingFirst:true,ambiguousFirst:false}
+      : mode===2
+        ? {first:"Quanto custa?",second:uber,third:uberAnswer,fourth:consent,service:"uber",greetingFirst:false,ambiguousFirst:true}
+        : mode===3
+          ? {first:uber,second:uberAnswer,third:faqVariants[v%faqVariants.length],fourth:consent,service:"uber",greetingFirst:false,ambiguousFirst:false}
+          : {first:car,second:carAnswer,third:objectionVariants[v%objectionVariants.length],fourth:consent,service:"documento",greetingFirst:false,ambiguousFirst:false};
   const base=outbound.length;
   try{
-    let r=await postConversation("conv-"+i+"-1",chat,scenario.first,name);
-    assert.equal(outbound.length,base+1,"every conversation opening must receive exactly one response");
+    await postConversation("conv-"+i+"-1",chat,scenario.first,name);
+    assert.equal(outbound.length,base+1,"every opening must receive exactly one response");
     const firstReply=outbound.at(-1).text;
-    if(scenario.first==="Oi"||scenario.first==="Olá, bom dia"){
+    if(scenario.greetingFirst){
       assert.match(firstReply,/Tudo bem/i);
       assert.match(firstReply,/Uber/);
       assert.match(firstReply,/CRLV/);
       if(first)assert.ok(firstReply.includes(first),"greeting should use the contact's first name");
       else assert.doesNotMatch(firstReply,/Oi, (?:WhatsApp|Teste|Contato|5511|User)!/i);
-      assert.equal(relatedLead(chat),undefined,"greeting alone must not pollute the sales Kanban");
+      assert.equal(relatedLead(chat),undefined,"a greeting alone must not pollute the sales Kanban");
     } else {
       assert.ok(firstReply.length>35);
-      if(scenario.first==="Quanto custa?"){
+      if(scenario.ambiguousFirst){
         assert.match(firstReply,/R\$ 350,00/);
         assert.match(firstReply,/R\$ 150,00/);
+        assert.equal(relatedLead(chat),undefined,"an ambiguous price inquiry should qualify service before creating a lead");
       } else {
         assert.match(firstReply,/R\$ (?:350|150),00/);
       }
       if(first)assert.ok(firstReply.includes(first),"opening should personalize from WhatsApp name");
     }
-    r=await postConversation("conv-"+i+"-2",chat,scenario.second,name);
+    await postConversation("conv-"+i+"-2",chat,scenario.second,name);
     assert.equal(outbound.length,base+2,"service selection must receive a contextual reply");
     const lead=relatedLead(chat);
     assert.ok(lead,"a qualified service must create a lead");
     assert.equal(lead.service,scenario.service);
     assert.match(outbound.at(-1).text,/R\$ (?:350|150),00/);
     assert.match(outbound.at(-1).text,scenario.service==="uber"?/conta do zero|conta que j[aá] existe/i:/CRLV|documento do carro/i);
-    r=await postConversation("conv-"+i+"-3",chat,scenario.third,name);
+    await postConversation("conv-"+i+"-3",chat,scenario.third,name);
     assert.equal(outbound.length,base+3,"qualification, FAQ or objection must be answered");
-    if(scenario.third==="Do zero"||scenario.third==="O documento está vencido"||scenario.third==="Já tenho uma conta bloqueada"||scenario.third==="Minha CNH venceu"||scenario.third==="Tenho uma pendência no licenciamento"){
-      assert.equal(lead.conversation_state,"offer_consent","the customer's answer should advance the funnel to consent");
-      assert.match(outbound.at(-1).text,/pode seguir|quer seguir/i);
-    }
-    r=await postConversation("conv-"+i+"-4",chat,scenario.fourth,name);
+    assert.equal(lead.conversation_state,"offer_consent","the customer should remain in the consent step until they agree");
+    await postConversation("conv-"+i+"-4",chat,scenario.fourth,name);
     assert.equal(outbound.length,base+4,"consent or document request must receive one reply");
     assert.equal(lead.conversation_state,"collecting_documents");
     assert.match(outbound.at(-1).text,/CNH|CRLV|documento do carro/i);
     assert.match(outbound.at(-1).text,/E-mail/i);
     assert.equal(lead.stage,"conversando");
-    conversationReports.push({number:i+1,scenario:i%conversationTypes.length,service:lead.service,personalized:Boolean(first),status:"passed"});
+    conversationReports.push({number:i+1,scenario:mode,service:lead.service,personalized:Boolean(first),status:"passed"});
   }catch(error){
     console.error("CONVERSATION_1000_FAIL",i+1,{chat,name,scenario,error:String(error)});
     throw error;
