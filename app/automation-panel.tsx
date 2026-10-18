@@ -5,6 +5,40 @@ type Rule = { id:string; title:string; trigger:string; message:string; default_m
 const sample: Record<string,string> = {nome:"Marina",valor:"R$ 350,00",faltantes:"• CNH frente\n• E-mail",documento:"CNH frente"};
 export default function AutomationPanel() {
   const [rules,setRules]=useState<Rule[]>([]);
+  const [media,setMedia]=useState<Record<string,{path?:string;mime_type?:string;enabled?:boolean}>>({});
+  const [mediaBusy,setMediaBusy]=useState("");
+  const [mediaError,setMediaError]=useState("");
+  const loadMedia=useCallback(async()=>{
+    const session=await supabase?.auth.getSession();
+    if(!session?.data.session)throw Error("Entre novamente no painel");
+    const r=await fetch(process.env.NEXT_PUBLIC_API_URL+"/admin/media",{
+      headers:{authorization:"Bearer "+session.data.session.access_token},
+      signal:AbortSignal.timeout(15000)
+    });
+    const data=await r.json();
+    if(!r.ok)throw Error(data.error||"Falha ao carregar mídias");
+    setMedia(data.assets||{});
+  },[]);
+  useEffect(()=>{void loadMedia().catch(()=>{});},[loadMedia]);
+  const uploadMedia=async(slot:string,file:File)=>{
+    setMediaBusy(slot);setMediaError("");
+    try {
+      const session=await supabase?.auth.getSession();
+      if(!session?.data.session)throw Error("Entre novamente no painel");
+      if(file.size>5*1024*1024)throw Error("O arquivo deve ter até 5 MB");
+      const r=await fetch(process.env.NEXT_PUBLIC_API_URL+"/admin/media/upload?slot="+slot,{
+        method:"POST",headers:{
+          authorization:"Bearer "+session.data.session.access_token,
+          "Content-Type":file.type
+        },body:file,signal:AbortSignal.timeout(60000)
+      });
+      const data=await r.json();
+      if(!r.ok)throw Error(data.error||"Não foi possível enviar");
+      await loadMedia();
+    }catch(e){setMediaError(e instanceof Error?e.message:"Falha no envio");}
+    finally{setMediaBusy("");}
+  };
+
   const [drafts,setDrafts]=useState<Record<string,string>>({});
   const [revision,setRevision]=useState("");
   const [active,setActive]=useState("welcome_uber");
@@ -37,6 +71,28 @@ export default function AutomationPanel() {
   const shown=rules.filter(rule=>(rule.title+" "+rule.trigger).toLocaleLowerCase("pt-BR").includes(search.toLocaleLowerCase("pt-BR")));
   return <div className="automationContent">
     <section className="panel"><h2>Mensagens da automação</h2><p className="muted">Escolha quando a mensagem é enviada, edite o texto e confira a prévia. Salvar altera os próximos envios; não dispara uma mensagem agora.</p><p className="muted">Os gatilhos acompanham as etapas do atendimento. A conferência dos documentos e a confirmação do pagamento continuam com você.</p><input className="automationSearch" aria-label="Buscar gatilho" placeholder="Buscar: boas-vindas, documentos, produção…" value={search} onChange={e=>setSearch(e.target.value)}/></section>
+    <section className="panel"><h2>Áudios e imagens da automação</h2>
+      <p className="muted">Envie o MP3 original sem alterações. O áudio de apresentação será enviado ao iniciar a coleta de documentos; o de conclusão, quando não houver pendências. Imagens ficam disponíveis como prova social. Limite: 5 MB por arquivo.</p>
+      {mediaError&&<p role="alert" className="error">{mediaError}</p>}
+      {([
+        ["intro_audio","Áudio de apresentação"],
+        ["complete_audio","Áudio de documentos recebidos"],
+        ["proof_1","Prova social 1"],
+        ["proof_2","Prova social 2"],
+        ["proof_3","Prova social 3"],
+        ["proof_4","Prova social 4"],
+        ["proof_5","Prova social 5"]
+      ] as const).map(([slot,title])=>
+        <div className="settingsForm" key={slot}>
+          <label>{title} {media[slot]?.enabled?"— armazenado":"— não enviado"}
+            <input type="file" disabled={Boolean(mediaBusy)}
+              accept={slot.endsWith("_audio")?".mp3,.ogg,audio/mpeg,audio/ogg":".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"}
+              onChange={e=>{const f=e.currentTarget.files?.[0];if(f)void uploadMedia(slot,f);e.currentTarget.value="";}}/>
+          </label>
+          {mediaBusy===slot&&<small>Enviando arquivo…</small>}
+        </div>
+      )}
+    </section>
     {error&&<div className="error" role="alert">{error}<button className="smallAction" disabled={Boolean(busy)} onClick={()=>void refresh().then(()=>setError("")).catch(e=>setError(e.message))}>Atualizar configuração</button></div>}
     {notice&&<div className="notice" role="status">{notice}</div>}
     {!rules.length&&!error&&<p role="status">Carregando mensagens…</p>}
