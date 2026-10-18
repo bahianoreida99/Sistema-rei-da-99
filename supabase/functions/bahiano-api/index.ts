@@ -958,7 +958,7 @@ async function webhook(body: any) {
         : uploaded.kind === "cnh_completa"
           ? "OK! ✅ Recebi sua CNH digital com frente e verso no mesmo arquivo. Ela ainda precisa de conferência."
         : uploaded.kind === "cnh_sem_lado"
-          ? "OK! ✅ Recebi sua CNH. Ela é digital, com os dois lados no mesmo arquivo, ou é apenas a frente/verso? Assim consigo identificar corretamente."
+          ? "OK! ✅ Recebi sua CNH. Ela é digital e contém frente e verso no mesmo arquivo, ou é apenas a frente/verso? Assim consigo identificar corretamente."
         : uploaded.kind === "outro"
           ? "Recebi o arquivo, mas ainda não consegui confirmar o tipo com segurança. Me diga se é CNH, CRLV ou selfie."
         : "OK! ✅ Recebi: *" + (docs[uploaded.kind] || uploaded.kind) + "*. Vou conferir a legibilidade antes de validar.";
