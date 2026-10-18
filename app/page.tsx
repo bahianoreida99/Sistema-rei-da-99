@@ -88,7 +88,7 @@ export default function Home() {
   const [month, setMonth] = useState(() => financialMonth());
   useEffect(() => { const timer = setInterval(() => setMonth(financialMonth()), 10000); return () => clearInterval(timer); }, []);
   const viewLeads = useMemo(
-    () => leads.filter((lead) => lead.source !== "demonstracao"),
+    () => leads.filter((lead) => lead.source !== "demonstracao" && !lead.conversation_context?.handoff_reason),
     [leads],
   );
   // Archive existing Kanban conversations without deleting historical records,
@@ -98,8 +98,8 @@ export default function Home() {
     [viewLeads],
   );
   const manualLeads = useMemo(
-    () => viewLeads.filter(lead => lead.conversation_context?.handoff_reason === "out_of_scope"),
-    [viewLeads],
+    () => leads.filter(lead => lead.source !== "demonstracao" && lead.conversation_context?.handoff_reason === "out_of_scope"),
+    [leads],
   );
   const selectedRef = useRef<string | null>(null);
   const refreshGeneration = useRef(0);
