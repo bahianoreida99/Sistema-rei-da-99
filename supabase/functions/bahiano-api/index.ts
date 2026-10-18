@@ -844,6 +844,7 @@ async function webhook(body: any) {
     ? /^(?:(?:e|eh|essa e|esse e|o arquivo e)\s+)?(?:a\s+)?(frente|verso|atras)(?:\s+da\s+cnh)?$/.exec(reply)?.[1] || ""
     : "";
   const digitalReply = !p.hasMedia && /^(?:(?:e|eh|isso e|ela e|a cnh e|o arquivo e)\s+)?(?:uma\s+)?(?:cnh\s+)?(?:digital|frente e verso|os dois lados|ambos os lados|com os dois lados|completo|completa)(?:\s+(?:com\s+)?(?:frente e verso|os dois lados))?$/.test(reply);
+  const docTypeReply = !p.hasMedia && /^(?:(?:e|eh|isso e|esse e|essa e|o arquivo e|o documento e|a foto e)\s+)?(?:a\s+|o\s+)?(?:cnh(?: digital| frente| verso)?|carteira nacional de habilitacao(?: frente| verso)?|crlv|documento do carro|licenciamento|selfie|rg(?: frente| verso)?)(?: mesmo)?$/.test(reply);
   const email = message.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0];
   if (email)
     lead = await update("leads", lead.id, { email: email.slice(0, 254) });
@@ -956,7 +957,7 @@ async function webhook(body: any) {
           ? "Recebi o arquivo, mas ainda não consegui identificar o tipo com segurança. Me diga se é CNH, CRLV ou selfie."
         : "OK! ✅ Recebi: *" + (docs[uploaded.kind] || uploaded.kind) + "*. Vou conferir a legibilidade antes de validar.";
     await sendDocumentProgress(chat,lead,mid,confirmation,"receipt");
-  } else if (!p.hasMedia && ((proposed !== "outro" && proposed !== "comprovante") || sideReply || digitalReply)) {
+  } else if (!p.hasMedia && (sideReply || digitalReply || docTypeReply)) {
     const pending = await rows("documents", "?lead_id=eq." + encodeURIComponent(lead.id) + "&status=eq.received&order=received_at.desc&limit=20");
     const candidates = pending.filter((d: any) =>
       digitalReply || sideReply ? d.kind === "cnh_sem_lado"
