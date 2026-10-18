@@ -394,6 +394,41 @@ assert.equal(leadForChat(upgradeChat).source,"site");
 assert.equal(leadForChat(upgradeChat).stage,"conversando","existing lead moves into conversation without losing ad attribution");
 console.log("PASS: first-contact routing, WAHA app ignored as source, Meta referral, site attribution, 10-day generic silence and Uber exception.");
 
+// End-to-end delivery simulation for the new multi-intent reply engine. Uses
+// real webhook processing, mock Supabase/WAHA, and 15 independent conversations.
+const faqInputs=[
+  ["Qual o preço?","R\\$ 350,00"],["Quanto tempo demora?","prazo|previs|estimativa|tempo"],
+  ["Achei caro","valor|pagamento|pagar"],["Tem garantia?","aprova|garant|requisitos"],
+  ["Quais documentos preciso?","CNH|CRLV"],["É seguro mandar meus dados?","dados|senha|documentos"],
+  ["Como anda meu pedido?","etapa|atendimento|análise"],["Aceita Pix?","pagamento|Pix|pagar"],
+  ["Minha foto ficou borrada","foto|imagem|arquivo"],["Minha conta Uber está bloqueada?","requisitos|Uber|situação|análise|aprovação|liberação"],
+  ["Quero documento falso","n[aã]o|irregular"],["Quanto custa e qual o prazo?","R\\$ 350,00"],
+  ["Tá muito caro, mas dá pra pagar depois?","paga|valor|pagamento"],
+  ["Minha CNH venceu, dá pra analisar?","Uber|requisitos|aprova|situação|análise|liberação"],
+  ["Qual o valor, aceita pix e demora quanto?","R\\$ 350,00"]
+];
+for(let i=0;i<faqInputs.length;i++){
+  const chat="551198876"+String(i).padStart(4,"0")+"@c.us";
+  const contact={id:"00000000-0000-4000-8000-"+String(8800+i).padStart(12,"0"),
+    chat_id:chat,phone:chat.slice(0,-5),classification:"lead",manual_override:false,
+    last_message_at:new Date().toISOString()};
+  const lead={id:"00000000-0000-4000-8000-"+String(8900+i).padStart(12,"0"),
+    contact_id:contact.id,service:"uber",source:"whatsapp",stage:"conversando",
+    conversation_state:"offer_consent",conversation_context:{},issue:"Cadastro suspenso",
+    automation_paused:false,price_cents:35000,welcome_sent_at:new Date().toISOString(),
+    first_reply_at:new Date().toISOString()};
+  tables.contacts.push(contact);tables.leads.push(lead);
+  const start=outbound.length;
+  const [customer,expected]=faqInputs[i];
+  await req("webhook/waha",routedMessage("contextual-case-"+i,chat,customer),hookHeaders);
+  assert.equal(outbound.length,start+1,"one response per incoming message "+customer);
+  assert.match(outbound.at(-1).text,new RegExp(expected,"i"),customer);
+  assert.doesNotMatch(outbound.at(-1).text,/Qual delas você precisa resolver|Hoje atendemos duas situações/i);
+  assert.equal(lead.conversation_state,"offer_consent","FAQ does not reset sales funnel");
+}
+console.log("PASS: 15 real webhook-to-response contextual FAQ, multi-question and safety paths (mocked).");
+
+
 // Regression for real conversation: "Olá tudo bem?", then "Conta uber,
 // estou sem EAR na CNH", then "Conta uber". A known Uber lead must not
 // repeatedly offer Uber/CRLV service selection.
