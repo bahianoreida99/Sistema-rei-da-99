@@ -240,10 +240,16 @@ for(let i=0;i<10;i++) await caseRun(0,i,"mensagem neutra ou saudação #"+(i+1),
   const chat=digits(10,i),before=tables.leads.length,sentBefore=outbound.length;
   const samples=["Oi, bom dia","Tudo bem?","Obrigado","Bom final de semana","Quero falar com você","Olá","Enviei mensagem errada","Boa noite","Tudo ótimo","Como vai?"];
   const result=await post("unknown-"+i,chat,samples[i]);
-  assert.equal(result.classified,"unknown");
-  assert.equal(tables.leads.length,before);
-  assert.equal(relatedLead(chat),undefined);
   const shouldGreet=[0,1,5,7,9].includes(i);
+  if(shouldGreet){
+    assert.equal(result.first,true);
+    assert.equal(tables.leads.length,before+1);
+    assert.equal(relatedLead(chat).service,"desconhecido");
+  } else {
+    assert.equal(result.classified,"unknown");
+    assert.equal(tables.leads.length,before);
+    assert.equal(relatedLead(chat),undefined);
+  }
   assert.equal(outbound.length,sentBefore+(shouldGreet?1:0));
   if(shouldGreet)assert.match(outbound.at(-1).text,/Oi! Tudo bem|Oi, .*Tudo bem/i);
 });
@@ -445,13 +451,13 @@ for(let i=0;i<1000;i++){
       assert.match(firstReply,/CRLV/);
       if(first)assert.ok(firstReply.includes(first),"greeting should use the contact's first name");
       else assert.doesNotMatch(firstReply,/Oi, (?:WhatsApp|Teste|Contato|5511|User)!/i);
-      assert.equal(relatedLead(chat),undefined,"a greeting alone must not pollute the sales Kanban");
+      assert.equal(relatedLead(chat)?.service,"desconhecido","a greeting should appear in the Kanban immediately");
     } else {
       assert.ok(firstReply.length>35);
       if(scenario.ambiguousFirst){
         assert.match(firstReply,/R\$ 350,00/);
         assert.match(firstReply,/R\$ 150,00/);
-        assert.equal(relatedLead(chat),undefined,"an ambiguous price inquiry should qualify service before creating a lead");
+        assert.equal(relatedLead(chat)?.service,"desconhecido","an ambiguous price inquiry should appear in the Kanban for follow-up");
       } else {
         assert.match(firstReply,/R\$ (?:350|150),00/);
       }

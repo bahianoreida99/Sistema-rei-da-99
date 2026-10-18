@@ -857,6 +857,12 @@ async function webhook(body: any) {
   }
   const message = String(p.body || "").slice(0, 3500);
   let lead = (await rows("leads", `?contact_id=eq.${contact.id}&select=*`))[0];
+  // Restore a returning archived contact to the Kanban while retaining history.
+  if (lead?.conversation_context?.kanban_archived_at && contact.classification !== "personal") {
+    const {kanban_archived_at: _archiveMarker, ...activeContext} = lead.conversation_context;
+    const reopened = await update("leads",lead.id,{conversation_context:activeContext});
+    lead = reopened || {...lead,conversation_context:activeContext};
+  }
   let serviceResolvedNow = false;
   if (lead && incomingDisplayName && firstName(incomingDisplayName) && lead.display_name !== incomingDisplayName) {
     const refreshedLead = await update("leads", lead.id, { display_name: incomingDisplayName });
@@ -901,7 +907,7 @@ async function webhook(body: any) {
     !lead &&
     contact.classification !== "personal" &&
     (!contact.manual_override || contact.classification === "lead") &&
-    isLead(message)
+    (isLead(message) || isGreetingOnly(message) || isCuriosity(message))
   ) {
     const svc = classify(message),
       c = campaign(message),
@@ -1018,7 +1024,10 @@ async function webhook(body: any) {
       let state = "discover_service";
       let opening = serviceDiscovery(lead, contact);
       let template = "sales_discovery";
-      if (lead.service !== "desconhecido") {
+      if (lead.service === "desconhecido" && isGreetingOnly(message)) {
+        opening = salesGreeting(contact);
+        template = "sales_greeting";
+      } else if (lead.service !== "desconhecido") {
         if (asksDocuments(message)) {
           state = "collecting_documents";
           opening = documentChecklist(lead, contact);

@@ -302,7 +302,8 @@ r = await req("webhook/waha", lidBody("lid-case-2", "Ok, vou enviar os documento
 assert.equal(r.duplicate, true);
 console.log("PASS: real WAHA @lid payload resolves to sender phone, sends welcome and advances to Conversando.");
 
-// Untrusted contacts do not enter the board by arrival alone.
+// Greeting from a new WhatsApp contact creates a Kanban card immediately.
+// Manually marked personal contacts remain excluded.
 const hookHeaders = { "x-bahiano-webhook-token": "private_token" };
 let count = tables.leads.length;
 r = await req(
@@ -316,8 +317,13 @@ r = await req(
   },
   hookHeaders,
 );
-assert.equal(r.classified, "unknown");
-assert.equal(tables.leads.length, count);
+assert.equal(r.first, true);
+assert.equal(tables.leads.length, count + 1);
+const greetingLead = tables.leads.at(-1);
+assert.equal(greetingLead.service, "desconhecido");
+assert.equal(greetingLead.stage, "leads");
+assert.ok(greetingLead.welcome_sent_at);
+assert.equal(tables.messages.at(-2).lead_id, greetingLead.id);
 tables.contacts.push({
   id: "00000000-0000-4000-8000-000000000999",
   chat_id: "5511999990002@c.us",
@@ -335,7 +341,7 @@ r = await req(
   },
   hookHeaders,
 );
-assert.equal(tables.leads.length, count);
+assert.equal(tables.leads.length, count + 1);
 // Media and payment text never move a finished client back to Conversando.
 lead.first_reply_at = null;
 r = await req(
