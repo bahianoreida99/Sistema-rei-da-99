@@ -389,6 +389,7 @@ assert.equal(leadForChat(upgradeChat).source,"site");
 assert.equal(leadForChat(upgradeChat).stage,"conversando","existing lead moves into conversation without losing ad attribution");
 console.log("PASS: first-contact routing, WAHA app ignored as source, Meta referral, site attribution, 10-day generic silence and Uber exception.");
 
+const countBeforePersonal=tables.leads.length;
 tables.contacts.push({
   id: "00000000-0000-4000-8000-000000000999",
   chat_id: "5511999990002@c.us",
@@ -406,7 +407,7 @@ r = await req(
   },
   hookHeaders,
 );
-assert.equal(tables.leads.length, count + 1);
+assert.equal(tables.leads.length, countBeforePersonal);
 // Media and payment text never move a finished client back to Conversando.
 lead.first_reply_at = null;
 r = await req(
