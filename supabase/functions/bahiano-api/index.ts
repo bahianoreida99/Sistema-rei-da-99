@@ -508,14 +508,14 @@ function contextualReply(message:string,lead:any,messageId:string):ContextualAns
       case "timing":
         parts.push(variant([
           "O prazo depende da demanda e da análise dos documentos. Confirmamos a previsão após conferir seu caso.",
-          "Assim que avaliarmos os documentos, informamos o prazo estimado. Não consigo garantir horário antes dessa análise.",
+          "Após receber os arquivos, conferimos a situação e informamos uma estimativa de prazo.",
           "A equipe verifica a situação e passa uma estimativa. O tempo pode variar conforme o caso."
         ]));break;
       case "guarantee":
         parts.push(variant([
-          "Não prometemos aprovação ou desbloqueio automático. A viabilidade depende das regras aplicáveis e da análise dos documentos.",
-          "A decisão final pode depender da Uber ou do órgão responsável. Podemos analisar o caso, mas não garantir o resultado.",
-          "A análise é individual e não significa aprovação garantida. Vamos explicar o que é possível após conferir seu caso."
+          "O Baiano acompanha seu atendimento, confere os requisitos aplicáveis e explica cada etapa do serviço.",
+          "Nossa equipe analisa os documentos e os requisitos da solicitação com atenção, informando o andamento por aqui.",
+          "O atendimento inclui conferência dos requisitos e acompanhamento do processo. O pagamento é após a entrega do serviço."
         ]));break;
       case "documents":
         parts.push(variant([
@@ -552,7 +552,7 @@ function contextualReply(message:string,lead:any,messageId:string):ContextualAns
       case "eligibility":
         parts.push(variant([
           "Entendi a situação. Precisamos conferir os requisitos da Uber e seus documentos antes de dizer o que é possível.",
-          "Podemos avaliar o problema e orientar as etapas regulares. Sem análise, não é possível prometer aprovação ou liberação.",
+          "Podemos avaliar o problema e orientar as etapas regulares. O Baiano vai conferir os documentos e os requisitos antes de avançar.",
           "Vamos verificar o que está pendente na conta e nos documentos. A aprovação depende dos critérios aplicáveis."
         ]));break;
       default:break;
@@ -577,7 +577,7 @@ function salesOpening(lead: any, contact?: any): string {
     if (lead?.issue) return hello + "\n\nEntendi, o ponto principal é *" + lead.issue + "*. O serviço relacionado ao CRLV custa *R$ 150,00*, e o pagamento é só após a entrega, conforme combinado. A viabilidade depende da análise do documento.\n\nQuer seguir com o atendimento? Se estiver de acordo, diga *pode seguir* e te passo os próximos passos.";
     return hello + "\n\nEntendi, você precisa de ajuda com o documento do carro (CRLV). O serviço custa *R$ 150,00*, e o pagamento é só após a entrega, conforme combinado.\n\nPra eu te orientar certinho: qual é a situação do documento? Você precisa resolver uma pendência ou tem outra dificuldade?";
   }
-  if (lead?.issue) return hello + "\n\nEntendi, o ponto principal é *" + lead.issue + "*. O serviço de ajuda com o cadastro Uber custa *R$ 350,00*, e o pagamento é só após a entrega, conforme combinado. A análise depende dos documentos e dos requisitos aplicáveis; não prometemos aprovação automática.\n\nQuer seguir com o atendimento? Se estiver de acordo, diga *pode seguir* e te passo os próximos passos.";
+  if (lead?.issue) return hello + "\n\nEntendi, o ponto principal é *" + lead.issue + "*. O serviço de ajuda com o cadastro Uber custa *R$ 350,00*, e o pagamento é só após a entrega, conforme combinado. A análise depende dos documentos e dos requisitos aplicáveis; a equipe confere os documentos e orienta as próximas etapas.\n\nQuer seguir com o atendimento? Se estiver de acordo, diga *pode seguir* e te passo os próximos passos.";
   return hello + "\n\nEntendi, você quer ajuda com a conta/cadastro da Uber. O serviço custa *R$ 350,00*, e o pagamento é só após a entrega, conforme combinado.\n\nPra eu te orientar certinho: você está criando a conta do zero ou tentando resolver um problema em uma conta que já existe?";
 }
 function documentChecklist(lead: any, contact?: any): string {
@@ -609,7 +609,7 @@ function qualificationResponse(lead: any, contact: any, message: string): { stat
           : "Entendi, o ponto principal é " + problem + ".";
       return {
         state: "offer_consent", context,
-        text: "Entendi" + address + "! " + detail + "\n\nO valor do serviço é *R$ 350,00*, com pagamento após a entrega. A análise depende dos seus documentos e dos requisitos aplicáveis; não prometemos aprovação automática.\n\nQuer seguir com o atendimento? Se estiver de acordo, diga *pode seguir* e eu te passo a lista de documentos.",
+        text: "Entendi" + address + "! " + detail + "\n\nO valor do serviço é *R$ 350,00*, com pagamento após a entrega. A análise depende dos seus documentos e dos requisitos aplicáveis; a equipe confere os documentos e orienta as próximas etapas.\n\nQuer seguir com o atendimento? Se estiver de acordo, diga *pode seguir* e eu te passo a lista de documentos.",
       };
     }
     return {
@@ -655,7 +655,7 @@ const automationRules = [
   { id: "sales_qualify_answer", title: "Resposta contextual de qualificação", trigger: "Cliente responde se é cadastro novo ou conta existente, ou descreve a pendência", message: "Entendi, {nome}! Vou considerar isso na orientação. Quer seguir com o atendimento? Se estiver de acordo, diga pode seguir e eu te passo a lista de documentos.", variables: ["nome","valor"] },
   { id: "sales_offer", title: "Confirmar interesse antes de pedir documentos", trigger: "Cliente já esclareceu o que precisa; confirmar se quer seguir", message: "Quer seguir com o atendimento? Se estiver de acordo com o valor, diga pode seguir e eu te passo a lista de documentos.", variables: ["nome","valor"] },
   { id: "sales_documents", title: "Solicitar documentos após interesse confirmado", trigger: "Cliente pede a lista ou confirma que quer seguir", message: "Perfeito, {nome}! Envie os documentos solicitados, um por vez. Vou confirmar cada recebimento e atualizar somente o que ainda faltar.", variables: ["nome","documentos"] },
-  { id: "sales_faq", title: "Explicar funcionamento, prazo e critérios", trigger: "Cliente pergunta como funciona, prazo, aprovação ou segurança", message: "O atendimento começa com o entendimento da sua situação, seguido do recebimento e conferência dos documentos necessários. A viabilidade depende dos documentos e dos requisitos aplicáveis; não prometemos aprovação automática.", variables: ["nome","valor"] },
+  { id: "sales_faq", title: "Explicar funcionamento, prazo e critérios", trigger: "Cliente pergunta como funciona, prazo, aprovação ou segurança", message: "O atendimento começa com o entendimento da sua situação, seguido do recebimento e conferência dos documentos necessários. A viabilidade depende dos documentos e dos requisitos aplicáveis; a equipe confere os documentos e orienta as próximas etapas.", variables: ["nome","valor"] },
   { id: "sales_smalltalk", title: "Manter conversa natural", trigger: "Cliente responde à saudação ou faz conversa breve antes de escolher serviço", message: "Tudo certo por aqui, obrigado por perguntar! 😊 Me conta: você precisa de ajuda com conta/cadastro Uber ou com o documento do carro (CRLV)?", variables: ["nome"] },
   { id: "guidance_missing", title: "Solicitar documentos e e-mail", trigger: "Cliente responde ou pergunta sobre documentos e ainda há itens faltando", message: "OK! ✅ Para continuar, ainda faltam:\n{faltantes}\nEnvie um item por vez. Vamos atualizando a lista conforme recebermos.", variables:["nome","faltantes"] },
   { id: "guidance_complete", title: "Itens recebidos", trigger: "Cliente pergunta sobre documentos e todos os itens já foram recebidos", message:"Recebemos os itens solicitados. O Baiano vai conferir os documentos antes de liberar a produção.", variables:["nome"] },
@@ -699,6 +699,7 @@ function docType(s: string) {
   const x = s.toLowerCase();
   if (/comprovante|pix|pagamento/.test(x)) return "comprovante";
   // A caption mentioning both sides cannot prove their presence.
+  if (/cnh\s+digital|habilita[cç][aã]o\s+digital/.test(x)) return "cnh_completa";
   if (/\bcnh\b/.test(x) && /frente/.test(x) && /verso|atr[aá]s/.test(x)) return "cnh_sem_lado";
   if (/cnh/.test(x) && /verso|atr[aá]s/.test(x)) return "cnh_verso";
   if (/cnh/.test(x) && /frente/.test(x)) return "cnh_frente";
@@ -794,7 +795,7 @@ function identifyDocument(text: string, hint: string, confidence: number, method
         if (license) kind = "cnh_sem_lado";
         note = "Há referências à frente e ao verso. Confirme qual lado foi enviado.";
       } else if (side) kind = family + "_" + side;
-      else if (supplied.startsWith(family + "_") && supplied !== "cnh_sem_lado") kind = supplied;
+      else if (supplied === family + "_frente" || supplied === family + "_verso") kind = supplied;
       else if (license) { kind = "cnh_sem_lado"; note = "CNH reconhecida. Confirme se é frente ou verso."; }
       else note = "RG identificado. Confirme se é frente ou verso.";
     }
@@ -804,14 +805,19 @@ function identifyDocument(text: string, hint: string, confidence: number, method
       ? "Comprovante identificado pela leitura do arquivo. Confira valor, destinatário e recebimento; não confirma pagamento."
       : "Tipo sugerido pela leitura do arquivo. A legibilidade e a validade exigem conferência.";
   }
-  if (kind === "outro" && supplied !== "outro" && !ambiguous && !/agendad|pendente|nao realizad|cancelad|falhou|saldo insuficiente|qr code|cobranca/.test(clean)) {
-    kind = supplied;
+  if (supplied === "cnh_completa" && ["outro","cnh_sem_lado"].includes(kind)) {
+    // A name or caption can suggest a digital CNH, but cannot prove both
+    // faces are present. Keep it pending review unless two visual regions agree.
+    kind = "cnh_sem_lado";
     method = "filename_or_caption";
-    note = supplied === "cnh_sem_lado"
-      ? "O nome do arquivo ou a legenda indicam CNH. Confirme frente ou verso e confira o conteúdo."
-      : "Tipo indicado pelo nome do arquivo ou legenda; conteúdo ainda exige conferência.";
+    note = "Nome ou legenda indicam CNH digital. A identificação dos dois lados depende da leitura visual ou revisão humana; não perguntar ao cliente a cada upload.";
   }
-  return { kind, identification_method: method, identification_confidence: method === "caption" ? 0 : Math.max(0, Math.min(100, Math.round(confidence || 0))), identification_note: note };
+  if (kind === "outro" && supplied !== "outro" && !ambiguous && !/agendad|pendente|nao realizad|cancelad|falhou|saldo insuficiente|qr code|cobranca/.test(clean)) {
+    kind = supplied === "cnh_completa" ? "cnh_sem_lado" : supplied;
+    method = "filename_or_caption";
+    note = "Tipo indicado pelo nome do arquivo ou legenda; conteúdo ainda exige conferência.";
+  }
+  return { kind, identification_method: method, identification_confidence: ["caption","filename_or_caption"].includes(method) ? 0 : Math.max(0, Math.min(100, Math.round(confidence || 0))), identification_note: note };
 }
 
 /**
@@ -887,6 +893,73 @@ async function sendDocumentProgress(
   }
   return {missing};
 }
+
+const BATCH_IDLE_MS = 300_000;
+async function batchModeOn(){
+  const setting=(await rows("business_settings","?key=eq.document_batch&select=value"))[0]?.value;
+  return setting?.enabled!==false;
+}
+const batchYes = (value:string) => /^(?:sim|s|pronto|prontinho|terminei|finalizei|enviei tudo|ja enviei tudo|confirmo|pode seguir|todos enviados)[.! ]*$/.test(normalizeConversation(value));
+const batchNo = (value:string) => /^(?:nao|n|ainda nao|falta|vou mandar mais|espera|aguarda)[.! ]*$/.test(normalizeConversation(value));
+function refreshedBatch(context:any,at:string) {
+  return {...(context||{}),batch_last_activity_at:at,
+    batch_revision:Number(context?.batch_revision||0)+1,
+    batch_has_uploads:true,batch_question_sent_at:null,batch_confirmed_at:null};
+}
+async function checkIdleBatches(nowMs=Date.now()) {
+  if(!(await batchModeOn()))return {asked:0};
+  const leads=await rows("leads","?conversation_state=eq.collecting_documents&order=updated_at.asc&limit=150&select=*");
+  let asked=0;
+  for(const lead of leads) {
+    const c=lead.conversation_context||{};
+    const at=Date.parse(String(c.batch_last_activity_at||""));
+    if(!c.batch_has_uploads || !Number.isFinite(at) ||
+      nowMs-at<BATCH_IDLE_MS || nowMs-at>86400000 ||
+      c.batch_question_sent_at || lead.automation_paused ||
+      ["producao","finalizados","pagos"].includes(lead.stage))continue;
+    const contact=await getContact(lead.contact_id);
+    const chat=String(contact?.chat_id||"");
+    if(!chat || !(await botOn(chat)))continue;
+    const current=await getLead(lead.id);
+    if(current?.conversation_context?.batch_last_activity_at!==c.batch_last_activity_at ||
+      current?.conversation_context?.batch_question_sent_at)continue;
+    const key="batch:confirm:"+lead.id+":"+String(c.batch_revision);
+    await send(chat,"Confirma pra mim: você já enviou todos os documentos?\n\nResponda *SIM* se terminou ou *NÃO* se ainda vai enviar mais algum.",lead,key);
+    await update("leads",lead.id,{conversation_context:{
+      ...(current?.conversation_context||c),
+      batch_question_sent_at:new Date(nowMs).toISOString()
+    }});
+    asked++;
+  }
+  return {asked};
+}
+
+
+async function completeDocumentBatch(chat:string,lead:any,mid:string,now:string) {
+  const files=await rows("documents","?lead_id=eq."+encodeURIComponent(lead.id)+"&select=kind,status");
+  const complete=Boolean(lead.email) &&
+    requiredFor(lead).every(kind=>hasDocKind(files,kind)) &&
+    !files.some(file=>file.status!=="rejected" && ["outro","cnh_sem_lado"].includes(file.kind));
+  const original=lead.conversation_context||{};
+  const next={...original,batch_confirmed_at:now,batch_question_sent_at:null,batch_has_uploads:false};
+  const saved=await update("leads",lead.id,{conversation_state:"awaiting_review",conversation_context:next});
+  lead=saved||lead;
+  if(complete) {
+    const delivered=await sendMedia(chat,lead,"complete_audio","media:complete:"+lead.id+resetTestSuffix(lead));
+    if(!delivered)throw Error("Áudio final não configurado");
+    const current=(await getLead(lead.id))?.conversation_context||next;
+    if(!current.origin_question_sent_at && !current.origin_confirmed){
+      await send(chat,leadOriginQuestion,lead,"origin:question:"+lead.id+resetTestSuffix(lead));
+      await update("leads",lead.id,{conversation_context:{...current,origin_question_sent_at:now}});
+    }
+  } else {
+    // The existing final audio says all requested documents were received.
+    // Send it only when that statement is consistent with the recorded files.
+    await send(chat,"Perfeito! Registrei que você terminou os envios. O Baiano vai conferir os arquivos e avisar por aqui se precisar de algum ajuste.",lead,"batch:review:"+mid);
+  }
+  return {confirmed:true,all_documents_received:complete};
+}
+
 async function mediaUpload(p: any, lead: any, msg: any, kind: string) {
   const mime = String(p.media?.mimetype || p.media?.mimeType || "");
   const media = String(p.media?.url || "");
@@ -1340,6 +1413,33 @@ async function webhook(body: any) {
     await send(chat,receivedProof.length ? "O comprovante está aguardando conferência. O Baiano vai confirmar o recebimento; o pagamento continua pendente até essa confirmação." : "Recebemos sua informação sobre o pagamento. Envie o comprovante legível para o Baiano conferir. O pagamento continua pendente até a confirmação.",lead,"payment-report:"+mid,receivedProof.length ? "payment_pending" : "payment_missing");
     return {lead_id:lead.id,stage:lead.stage,payment_reported:true};
   }
+  // Batch mode: media are stored silently. Five minutes after the last
+  // upload/activity, /internal/retry asks once whether the client is done.
+  const inBatch = lead.service !== "desconhecido" &&
+    ["collecting_documents","awaiting_review"].includes(String(lead.conversation_state||"")) &&
+    Boolean(lead.conversation_context?.intro_onboarding_started_at) &&
+    !lead.automation_paused && await botOn(chat) && await batchModeOn();
+  if(inBatch && p.hasMedia && uploaded && uploaded.kind!=="comprovante") {
+    const next=refreshedBatch(lead.conversation_context,now);
+    await update("leads",lead.id,{conversation_state:"collecting_documents",conversation_context:next});
+    return {lead_id:lead.id,batch_upload_saved:true,recognized_type:uploaded.kind,auto_reply:false};
+  }
+  if(inBatch && !p.hasMedia && lead.conversation_context?.batch_question_sent_at &&
+    (batchYes(message) || batchNo(message))) {
+    if(batchYes(message)) return {lead_id:lead.id,...await completeDocumentBatch(chat,lead,mid,now)};
+    const next={...lead.conversation_context,batch_question_sent_at:null,batch_last_activity_at:now,
+      batch_revision:Number(lead.conversation_context?.batch_revision||0)+1};
+    await update("leads",lead.id,{conversation_context:next});
+    await send(chat,"Tudo bem! Pode continuar enviando os arquivos. Vou aguardar.",lead,"batch:continue:"+mid);
+    return {lead_id:lead.id,batch_continues:true};
+  }
+  if(inBatch && !p.hasMedia && lead.conversation_context?.batch_has_uploads) {
+    // Information such as an email or an answer about a digital CNH counts as
+    // activity; the bot does not send another checklist while files arrive.
+    await update("leads",lead.id,{conversation_context:refreshedBatch(lead.conversation_context,now)});
+    return {lead_id:lead.id,batch_waiting:true,auto_reply:false};
+  }
+
   if (!lead.welcome_sent_at) {
     if (
       !lead.automation_paused &&
@@ -1532,17 +1632,17 @@ async function webhook(body: any) {
       await send(chat,answer + "\n\nQuer que eu te passe os próximos passos?",lead,"digital-cnh:"+mid,"sales_faq");
     }
   } else if (asksGuarantee(message)) {
-    const answer = "Prefiro ser transparente: não posso prometer aprovação automática. O Baiano confere os documentos e orienta o atendimento dentro dos requisitos aplicáveis da plataforma e da legislação.";
+    const answer = "O Baiano confere seus documentos e acompanha o atendimento, respeitando os requisitos aplicáveis. O pagamento é após a entrega do serviço.";
     if (state === "collecting_documents" || state === "awaiting_review") await sendDocumentProgress(chat,lead,mid,answer,"faq-guarantee");
     else await send(chat,answer + "\n\nQuer continuar com a análise do seu caso?",lead,"faq-guarantee:"+mid,"sales_faq");
   } else if (asksTiming(message)) {
-    const answer = "O prazo depende da situação e da análise dos documentos. Não quero te prometer um prazo sem conferir seu caso primeiro.";
+    const answer = "O prazo depende da situação e da análise dos documentos. Assim que conferirmos o caso, informamos a previsão de atendimento.";
     if (state === "collecting_documents" || state === "awaiting_review") await sendDocumentProgress(chat,lead,mid,answer,"faq-timing");
     else await send(chat,answer + "\n\nSe me explicar sua situação, te oriento sobre o próximo passo.",lead,"faq-timing:"+mid,"sales_faq");
   } else if (/(?:meus documentos|privacidade|meus dados|e seguro|seguranca|confiavel|posso confiar|golpe|senha|codigo de verificacao)/.test(normalizeConversation(message))) {
     await send(chat,"Envie apenas os documentos necessários para este atendimento. Não envie senhas, códigos de verificação da Uber/WhatsApp nem dados bancários. Os arquivos serão conferidos antes de qualquer validação.",lead,"faq-privacy:"+mid,"sales_faq");
   } else if (asksHow(message)) {
-    const answer = "Funciona assim: primeiro entendemos sua situação; depois você envia somente os documentos necessários; o Baiano confere os arquivos e avalia o próximo passo. A viabilidade depende dos documentos e dos requisitos aplicáveis, sem promessa de aprovação automática.";
+    const answer = "Funciona assim: primeiro entendemos sua situação; depois você envia somente os documentos necessários; o Baiano confere os arquivos e avalia o próximo passo. A viabilidade depende dos documentos e dos requisitos aplicáveis, com conferência dos documentos antes do andamento.";
     if (state === "collecting_documents" || state === "awaiting_review") await sendDocumentProgress(chat,lead,mid,answer,"faq-how");
     else {
       const next = state === "qualify_uber"
@@ -2062,7 +2162,8 @@ async function retryEvents() {
       console.error("webhook retry failed");
     }
   }
-  return { retried: events.length, succeeded };
+  const batch=await checkIdleBatches();
+  return { retried: events.length, succeeded, idle_batches_prompted:batch.asked };
 }
 async function whatsapp(req: Request, path: string) {
   if (!(await checkAdmin(req)))

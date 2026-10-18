@@ -30,7 +30,7 @@ const tables = {
   messages: [],
   documents: [],
   lead_activity: [],
-  business_settings: [{ key: "bot", value: { enabled: true } },{key:"automation_media",value:{intro_audio:{path:"intro_audio/test.mp3",mime_type:"audio/mpeg",enabled:true}}}],
+  business_settings: [{ key: "bot", value: { enabled: true } },{key:"document_batch",value:{enabled:false}},{key:"automation_media",value:{intro_audio:{path:"intro_audio/test.mp3",mime_type:"audio/mpeg",enabled:true}}}],
 };
 let i = 0;
 const outbound = [];
@@ -150,9 +150,10 @@ const {
   send: automationSend,
   sendMedia: automationSendMedia,
   sendDocumentProgress: automationSendDocumentProgress,
+  checkIdleBatches: testIdleBatch,
   recognizeReportedOrigin: parseOrigin
 } = vm.runInNewContext(
-  js.outputText + "\n;({send,sendMedia,sendDocumentProgress,recognizeReportedOrigin});",
+  js.outputText + "\n;({send,sendMedia,sendDocumentProgress,checkIdleBatches,recognizeReportedOrigin});",
   {
     BahianoReadDocument: async () => ocrResult,
     BahianoConvertToJpeg: async () => new Uint8Array([255,216,255,1,2,3,255,217]),
@@ -1013,7 +1014,8 @@ assert.notEqual(bothLead.stage,"producao","Other documents still required");
 ocrResult={text:"ruido pouco legivel",confidence:32,method:"image_ocr",regions:[]};
 await req("webhook/waha",bothEvent("rescan-file","","CNH digital recente.png"),hookHeaders);
 const rescanDoc=tables.documents.at(-1);
-assert.equal(rescanDoc.kind,"cnh_sem_lado");
+assert.equal(rescanDoc.kind,"cnh_sem_lado","Digital file name alone does not prove both sides");
+assert.equal(rescanDoc.identification_confidence,0,"Digital file name alone proves no contents");
 ocrResult={
  text:"CNH DIGITAL",confidence:85,method:"image_ocr",
  regions:[
@@ -1328,5 +1330,83 @@ assert.equal(originReply.reported_origin,"site");
 assert.equal(siteOriginLead.source,"site");
 assert.equal(siteOriginLead.stage,"leads_campaign");
 console.log("PASS: completion voice precedes attribution question, five answer choices, stored self-report, site routing and question dedupe (mocked).");
+
+
+// Ten independent test-evaluate scenarios, over webhook + 5-minute timer,
+// without using a real number or disclosing any real customer's documents.
+tables.business_settings.find(x=>x.key==="document_batch").value.enabled=true;
+const batchTime=Date.now();
+const batchReports=[];
+for(let cycle=0;cycle<10;cycle++){
+  const chat="55119770"+String(cycle).padStart(5,"0")+"@c.us";
+  const service=cycle%2===0?"documento":"uber";
+  const phone=chat.split("@")[0];
+  const incoming=(name,body,filename)=>{
+    const media=Boolean(filename);
+    return {event:"message",session:"default",payload:{
+      from:chat,id:"batch-"+cycle+"-"+name,body,fromMe:false,hasMedia:media,
+      ...(media?{media:{url:"https://waha.example/api/files/fixture.png",
+        mimetype:"image/jpeg",filename}}:{})
+    }};
+  };
+  const startCount=outbound.length;
+  await req("webhook/waha",incoming("start",service==="uber"?"Quero cadastro Uber":"Quero CRLV"),hookHeaders);
+  const batchLead=leadForChat(chat);
+  assert.equal(batchLead.service,service);
+  assert.equal(outbound.length,startCount+2,"Intro must be voice then checklist.");
+  assert.equal(outbound.at(-2).mediaEndpoint,"/api/sendVoice");
+  const beforeFiles=outbound.length;
+  const sends=service==="uber"?["CNH digital.jpg","CRLV.jpg","Selfie.jpg"]:["CRLV.jpg"];
+  for(let j=0;j<sends.length;j++){
+    ocrResult=sends[j].includes("CNH digital")
+      ? {text:"CARTEIRA NACIONAL DE HABILITACAO CNH DIGITAL",
+        confidence:92,method:"image_ocr",regions:[
+          {area:"image_half_1",confidence:91,text:"CARTEIRA NACIONAL DE HABILITACAO NOME FILIACAO DATA NASCIMENTO"},
+          {area:"image_half_2",confidence:92,text:"OBSERVACOES CATEGORIA HABILITACAO QR CODE CODIGO SEGURANCA"}
+        ]}
+      : {text:"",confidence:0,method:"unavailable",regions:[]};
+    const r=await req("webhook/waha",incoming("file"+j,"",sends[j]),hookHeaders);
+    assert.equal(r.batch_upload_saved,true);
+    assert.equal(outbound.length,beforeFiles,"Do not respond to individual uploaded documents");
+  }
+  assert.ok(batchLead.conversation_context.batch_has_uploads);
+  if(cycle!==2){
+    const a=await req("webhook/waha",incoming("email","batch"+cycle+"@example.invalid"),hookHeaders);
+    assert.equal(a.batch_waiting,true);
+    assert.equal(outbound.length,beforeFiles,"Do not respond to email during file batch");
+  }
+  assert.equal((await testIdleBatch(Date.now()+4*60_000)).asked,0);
+  const triggered=await testIdleBatch(Date.now()+6*60_000);
+  assert.equal(triggered.asked,1,"Exactly one reminder after 5-minute inactivity");
+  assert.match(outbound.at(-1).text,/Confirma pra mim.*enviou todos/i);
+  const afterQuestion=outbound.length;
+  assert.equal((await testIdleBatch(Date.now()+7*60_000)).asked,0,"No duplicate prompt");
+  assert.equal(outbound.length,afterQuestion);
+  if(cycle===3){
+    await req("webhook/waha",incoming("no","não"),hookHeaders);
+    assert.match(outbound.at(-1).text,/Pode continuar enviando/i);
+    assert.equal(batchLead.conversation_state,"collecting_documents");
+    assert.equal((await testIdleBatch(Date.now()+4*60_000)).asked,0);
+    assert.equal((await testIdleBatch(Date.now()+6*60_000)).asked,1,"No -> next 5-minute cycle");
+  }
+  const result=await req("webhook/waha",incoming("yes",cycle%3===0?"confirmo":"sim"),hookHeaders);
+  assert.equal(result.confirmed,true);
+  assert.equal(batchLead.conversation_state,"awaiting_review");
+  if(cycle===2){
+    assert.equal(result.all_documents_received,false,"Absent email cannot trigger complete audio");
+    assert.match(outbound.at(-1).text,/Baiano vai conferir/i);
+  }else{
+    assert.equal(result.all_documents_received,true,"All requested files plus email present");
+    assert.equal(outbound.at(-2).mediaEndpoint,"/api/sendVoice");
+    assert.match(outbound.at(-1).text,/Indicação/);
+  }
+  const afterConfirm=outbound.length;
+  await req("webhook/waha",incoming("yes","sim"),hookHeaders);
+  assert.equal(outbound.length,afterConfirm,"Do not resend completion on repeated yes");
+  batchReports.push({cycle:cycle+1,service,files:sends.length,complete:result.all_documents_received});
+}
+tables.business_settings.find(x=>x.key==="document_batch").value.enabled=false;
+console.log("BATCH_10_ROUNDS "+JSON.stringify(batchReports));
+
 
 
