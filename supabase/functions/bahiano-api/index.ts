@@ -805,14 +805,17 @@ function identifyDocument(text: string, hint: string, confidence: number, method
       ? "Comprovante identificado pela leitura do arquivo. Confira valor, destinatário e recebimento; não confirma pagamento."
       : "Tipo sugerido pela leitura do arquivo. A legibilidade e a validade exigem conferência.";
   }
+  if (supplied === "cnh_completa" && ["outro","cnh_sem_lado"].includes(kind)) {
+    kind = "cnh_completa";
+    method = "filename_or_caption";
+    note = "CNH digital declarada no nome ou legenda: frente e verso tratados como arquivo único para recebimento, com conferência humana obrigatória.";
+  }
   if (kind === "outro" && supplied !== "outro" && !ambiguous && !/agendad|pendente|nao realizad|cancelad|falhou|saldo insuficiente|qr code|cobranca/.test(clean)) {
     kind = supplied;
     method = "filename_or_caption";
-    note = supplied === "cnh_sem_lado"
-      ? "O nome do arquivo ou a legenda indicam CNH. Confirme frente ou verso e confira o conteúdo."
-      : "Tipo indicado pelo nome do arquivo ou legenda; conteúdo ainda exige conferência.";
+    note = "Tipo indicado pelo nome do arquivo ou legenda; conteúdo ainda exige conferência.";
   }
-  return { kind, identification_method: method, identification_confidence: method === "caption" ? 0 : Math.max(0, Math.min(100, Math.round(confidence || 0))), identification_note: note };
+  return { kind, identification_method: method, identification_confidence: ["caption","filename_or_caption"].includes(method) ? 0 : Math.max(0, Math.min(100, Math.round(confidence || 0))), identification_note: note };
 }
 
 /**
