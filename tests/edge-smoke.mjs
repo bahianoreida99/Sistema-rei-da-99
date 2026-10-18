@@ -145,8 +145,13 @@ async function fetchMock(input, init = {}) {
   }
   throw Error("Unexpected method " + init.method);
 }
-const { send: automationSend, sendMedia: automationSendMedia } = vm.runInNewContext(
-  js.outputText + "\n;({send,sendMedia});",
+const {
+  send: automationSend,
+  sendMedia: automationSendMedia,
+  sendDocumentProgress: automationSendDocumentProgress,
+  recognizeReportedOrigin: parseOrigin
+} = vm.runInNewContext(
+  js.outputText + "\n;({send,sendMedia,sendDocumentProgress,recognizeReportedOrigin});",
   {
     BahianoReadDocument: async () => ocrResult,
     BahianoConvertToJpeg: async () => new Uint8Array([255,216,255,1,2,3,255,217]),
@@ -1059,4 +1064,77 @@ assert.equal(await automationSendMedia("test@c.us",mockLead,"proof_1","test:proo
 assert.equal(outbound.length,mediaBefore+3,"proof image must not repeat");
 assert.equal((await handler(new Request("https://edge.example/admin/media"))).status,401);
 console.log("PASS: media Storage->WAHA audio+image, completion audio, base64 payload, deduplication, message recording and admin auth (mocked).");
+
+// Full documents -> receipt text -> original audio -> one attribution question.
+// Reply capture is tested through the real webhook handler, never a real phone.
+for(const [answer,expected] of [
+  ["1","indicacao"],["2","site"],["3","instagram"],["4","facebook"],["5","youtube"],
+  ["Foi indicação de um amigo","indicacao"],["Vim pelo site","site"],
+  ["Instagram","instagram"],["Facebook","facebook"],["vídeo do YouTube","youtube"]
+]) assert.equal(parseOrigin(answer),expected,"origin parser "+answer);
+assert.equal(parseOrigin("Minha conta Uber está bloqueada"),null);
+assert.equal(parseOrigin("Você pode analisar o meu CRLV?"),null);
+
+tables.business_settings[0].value={enabled:true};
+const originChat="5511999998881@c.us";
+const originContact={
+ id:"00000000-0000-4000-8000-000000000881",
+ chat_id:originChat,phone:originChat.split("@")[0],
+ classification:"lead",manual_override:false,
+ last_message_at:new Date().toISOString()
+};
+const originLead={
+ id:"00000000-0000-4000-8000-000000000882",contact_id:originContact.id,
+ service:"uber",source:"whatsapp",stage:"conversando",
+ email:"teste@example.invalid",conversation_context:{},
+ conversation_state:"collecting_documents",
+ welcome_sent_at:new Date().toISOString(),first_reply_at:new Date().toISOString(),
+ automation_paused:false,display_name:"Teste",phone:originContact.phone,
+ price_cents:35000,issue:"conta bloqueada"
+};
+tables.contacts.push(originContact);tables.leads.push(originLead);
+for(const kind of ["cnh_frente","cnh_verso","crlv","selfie"]){
+  tables.documents.push({id:"complete-"+kind,lead_id:originLead.id,kind,status:"received"});
+}
+let originBefore=outbound.length;
+const originProgress=await automationSendDocumentProgress(originChat,originLead,"complete-origin-1","Recebemos seu último documento.","receipt");
+assert.equal(originProgress.missing.length,0);
+assert.equal(outbound.length,originBefore+3,"receipt text, completion voice and origin question");
+assert.equal(outbound.at(-2).mediaEndpoint,"/api/sendVoice");
+assert.match(outbound.at(-1).text,/1\. Indicação/);
+assert.match(outbound.at(-1).text,/2\. Site/);
+assert.match(outbound.at(-1).text,/3\. Instagram/);
+assert.match(outbound.at(-1).text,/4\. Facebook/);
+assert.match(outbound.at(-1).text,/5\. Vídeo do YouTube/);
+assert.ok(originLead.conversation_context.origin_question_sent_at);
+originBefore=outbound.length;
+await automationSendDocumentProgress(originChat,originLead,"complete-origin-2","Tudo recebido.","receipt");
+assert.equal(outbound.length,originBefore+1,"other progress can be sent, but audio/question cannot repeat");
+let originReply=await req("webhook/waha",{
+ event:"message",session:"default",payload:{from:originChat,id:"origin-answer-3",body:"3",fromMe:false}
+},hookHeaders);
+assert.equal(originReply.reported_origin,"instagram");
+assert.equal(originLead.conversation_context.origin_confirmed,"instagram");
+assert.equal(outbound.at(-1).text,"Perfeito, obrigado! ✅");
+assert.equal(tables.messages.at(-2).body,"3","customer response is retained in history");
+originBefore=outbound.length;
+await req("webhook/waha",{
+ event:"message",session:"default",payload:{from:originChat,id:"origin-answer-3",body:"3",fromMe:false}
+},hookHeaders);
+assert.equal(outbound.length,originBefore,"replayed response cannot resend thanks");
+await automationSendDocumentProgress(originChat,originLead,"complete-origin-3","Tudo recebido.","receipt");
+assert.equal(outbound.length,originBefore+1,"question stays suppressed even after later progress");
+
+const siteOriginChat="5511999998882@c.us";
+const siteOriginContact={...originContact,id:"00000000-0000-4000-8000-000000000883",chat_id:siteOriginChat,phone:siteOriginChat.split("@")[0]};
+const siteOriginLead={...originLead,id:"00000000-0000-4000-8000-000000000884",contact_id:siteOriginContact.id,source:"whatsapp",stage:"leads",conversation_context:{origin_question_sent_at:new Date().toISOString()}};
+tables.contacts.push(siteOriginContact);tables.leads.push(siteOriginLead);
+originReply=await req("webhook/waha",{
+ event:"message",session:"default",payload:{from:siteOriginChat,id:"origin-answer-site",body:"2",fromMe:false}
+},hookHeaders);
+assert.equal(originReply.reported_origin,"site");
+assert.equal(siteOriginLead.source,"site");
+assert.equal(siteOriginLead.stage,"leads_campaign");
+console.log("PASS: completion voice precedes attribution question, five answer choices, stored self-report, site routing and question dedupe (mocked).");
+
 

@@ -1222,6 +1222,15 @@ export default function Home() {
                     />
                     <Info label="Valor" value={currency(active.price_cents)} />
                     <Info label="Origem" value={active.source} />
+                     <Info label="Como nos conheceu" value={
+                       ({
+                         indicacao:"Indicação",
+                         site:"Site",
+                         instagram:"Instagram",
+                         facebook:"Facebook",
+                         youtube:"Vídeo do YouTube"
+                       } as Record<string,string>)[String(active.conversation_context?.origin_confirmed || "")] || "Ainda não informado"
+                     } />
                     <Info
                       label="Situação"
                       value={
