@@ -287,6 +287,9 @@ function isExplicitConsent(value: string): boolean {
 function isNegative(value: string): boolean {
   return /^(?:nao|agora nao|nao quero|depois|vou pensar|mais tarde|so estava perguntando|so queria saber)$/.test(normalizeConversation(value));
 }
+function isPriceObjection(value: string): boolean {
+  return /(?:muito caro|achei caro|ta caro|caro demais|valor alto|fora do meu orcamento|nao tenho dinheiro|sem dinheiro|nao consigo pagar|nao posso pagar)/.test(normalizeConversation(value));
+}
 function accountAnswer(value: string): "new" | "existing" | null {
   const s = normalizeConversation(value);
   if (/(?:do zero|conta nova|nova conta|criar do zero|primeira vez|ainda nao tenho|nao tenho conta|nunca tive|fazer cadastro novo|cadastro novo)/.test(s)) return "new";
@@ -304,8 +307,10 @@ function salesOpening(lead: any, contact?: any): string {
   const name = firstName(contact?.display_name || lead?.display_name);
   const hello = helloLine(name);
   if (lead?.service === "documento") {
+    if (lead?.issue) return hello + "\n\nEntendi, o ponto principal é *" + lead.issue + "*. O serviço relacionado ao CRLV custa *R$ 150,00*, e o pagamento é só após a entrega, conforme combinado. A viabilidade depende da análise do documento.\n\nQuer seguir com o atendimento? Se estiver de acordo, diga *pode seguir* e te passo os próximos passos.";
     return hello + "\n\nEntendi, você precisa de ajuda com o documento do carro (CRLV). O serviço custa *R$ 150,00*, e o pagamento é só após a entrega, conforme combinado.\n\nPra eu te orientar certinho: qual é a situação do documento? Você precisa resolver uma pendência ou tem outra dificuldade?";
   }
+  if (lead?.issue) return hello + "\n\nEntendi, o ponto principal é *" + lead.issue + "*. O serviço de ajuda com o cadastro Uber custa *R$ 350,00*, e o pagamento é só após a entrega, conforme combinado. A análise depende dos documentos e dos requisitos aplicáveis; não prometemos aprovação automática.\n\nQuer seguir com o atendimento? Se estiver de acordo, diga *pode seguir* e te passo os próximos passos.";
   return hello + "\n\nEntendi, você quer ajuda com a conta/cadastro da Uber. O serviço custa *R$ 350,00*, e o pagamento é só após a entrega, conforme combinado.\n\nPra eu te orientar certinho: você está criando a conta do zero ou tentando resolver um problema em uma conta que já existe?";
 }
 function documentChecklist(lead: any, contact?: any): string {
@@ -749,6 +754,24 @@ async function webhook(body: any) {
     const refreshedLead = await update("leads", lead.id, { display_name: incomingDisplayName });
     lead = refreshedLead || { ...lead, display_name: incomingDisplayName };
   }
+  if (lead && lead.service !== "desconhecido") {
+    const detectedSwitch = classify(message);
+    const normalizedSwitch = normalizeConversation(message);
+    const explicitSwitch = /(?:na verdade|quis dizer|me enganei|era sobre|em vez disso|preciso do crlv|documento do carro|licenciamento do carro|documento do veiculo|conta uber|cadastro uber|trabalhar de uber)/.test(normalizedSwitch);
+    if (detectedSwitch !== "desconhecido" && detectedSwitch !== lead.service && explicitSwitch) {
+      const switchedIssue = issue(message);
+      const switchedState = switchedIssue ? "offer_consent" : detectedSwitch === "documento" ? "qualify_documento" : "qualify_uber";
+      const refreshedLead = await update("leads", lead.id, {
+        service: detectedSwitch,
+        price_cents: detectedSwitch === "uber" ? 35000 : 15000,
+        issue: switchedIssue,
+        conversation_state: switchedState,
+        conversation_context: { ...(lead.conversation_context || {}), service_switched_from: lead.service, service_switch_message: cleanDisplayName(message).slice(0, 240) },
+      });
+      lead = refreshedLead || { ...lead, service: detectedSwitch, price_cents: detectedSwitch === "uber" ? 35000 : 15000, issue: switchedIssue, conversation_state: switchedState };
+      serviceResolvedNow = true;
+    }
+  }
   if (lead && lead.service === "desconhecido") {
     const resolved = classify(message);
     if (resolved !== "desconhecido") {
@@ -893,7 +916,7 @@ async function webhook(body: any) {
           opening = documentChecklist(lead, contact);
           template = "sales_documents";
         } else {
-          state = lead.service === "documento" ? "qualify_documento" : "qualify_uber";
+          state = lead.issue ? "offer_consent" : lead.service === "documento" ? "qualify_documento" : "qualify_uber";
           opening = salesOpening(lead, contact);
           template = lead.service === "documento" ? "welcome_documento" : "welcome_uber";
         }
@@ -923,7 +946,7 @@ async function webhook(body: any) {
     });
   }
   if (serviceResolvedNow && !lead.automation_paused && await botOn(chat)) {
-    const state = lead.service === "documento" ? "qualify_documento" : "qualify_uber";
+    const state = lead.issue ? "offer_consent" : lead.service === "documento" ? "qualify_documento" : "qualify_uber";
     await send(chat, salesOpening(lead, contact), lead, "sales:resolved:" + mid,
       lead.service === "documento" ? "welcome_documento" : "welcome_uber",
       { nome: firstName(contact.display_name || lead.display_name) || "", saudacao: firstName(contact.display_name || lead.display_name) ? ", " + firstName(contact.display_name || lead.display_name) : "", valor: lead.service === "documento" ? "R$ 150,00" : "R$ 350,00" });
@@ -1036,7 +1059,7 @@ async function webhook(body: any) {
     const answer = "O prazo depende da situação e da análise dos documentos. Não quero te prometer um prazo sem conferir seu caso primeiro.";
     if (state === "collecting_documents" || state === "awaiting_review") await sendDocumentProgress(chat,lead,mid,answer,"faq-timing");
     else await send(chat,answer + "\n\nSe me explicar sua situação, te oriento sobre o próximo passo.",lead,"faq-timing:"+mid,"sales_faq");
-  } else if (/(?:meus documentos|privacidade|meus dados|e seguro|seguranca|senha|codigo de verificacao)/.test(normalizeConversation(message))) {
+  } else if (/(?:meus documentos|privacidade|meus dados|e seguro|seguranca|confiavel|posso confiar|golpe|senha|codigo de verificacao)/.test(normalizeConversation(message))) {
     await send(chat,"Envie apenas os documentos necessários para este atendimento. Não envie senhas, códigos de verificação da Uber/WhatsApp nem dados bancários. Os arquivos serão conferidos antes de qualquer validação.",lead,"faq-privacy:"+mid,"sales_faq");
   } else if (asksHow(message)) {
     const answer = "Funciona assim: primeiro entendemos sua situação; depois você envia somente os documentos necessários; o Baiano confere os arquivos e avalia o próximo passo. A viabilidade depende dos documentos e dos requisitos aplicáveis, sem promessa de aprovação automática.";
@@ -1048,6 +1071,14 @@ async function webhook(body: any) {
           ? "Qual é a pendência no documento do carro (CRLV)?"
           : "Quer que eu te passe os próximos passos?";
       await send(chat,answer + "\n\n" + next,lead,"faq-how:"+mid,"sales_faq");
+    }
+  } else if (isPriceObjection(message)) {
+    const price = lead.service === "documento" ? "R$ 150,00" : "R$ 350,00";
+    const answer = "Entendo sua preocupação. O valor combinado é *" + price + "* e o pagamento acontece após a entrega. Não vou prometer desconto sem confirmação, mas posso esclarecer o que está incluído antes de você decidir.";
+    if (state === "collecting_documents" || state === "awaiting_review") {
+      await sendDocumentProgress(chat,lead,mid,answer,"price-objection");
+    } else {
+      await send(chat,answer + "\n\nQuer tirar alguma dúvida ou prefere pensar e retomar depois?",lead,"price-objection:"+mid,"sales_offer");
     }
   } else if (asksPrice(message)) {
     const price = lead.service === "documento" ? "R$ 150,00" : "R$ 350,00";
