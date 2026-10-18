@@ -1172,6 +1172,13 @@ async function webhook(body: any) {
       !lead.conversation_context?.intro_onboarding_started_at &&
       (!lead.welcome_sent_at ||
         ["discover_service","qualify_uber","qualify_documento","offer_consent"].includes(String(lead.conversation_state||"")))) {
+    // Preserve the issue supplied by an existing lead on the same message
+    // that starts the new streamlined audio/document onboarding.
+    const reportedIssue = issue(message);
+    if (reportedIssue && reportedIssue !== lead.issue) {
+      const refreshed = await update("leads",lead.id,{issue:reportedIssue});
+      lead = refreshed || {...lead,issue:reportedIssue};
+    }
     // Do not confirm that audio was delivered until WAHA accepted it. A failed
     // send causes webhook retry instead of silently skipping the presentation.
     const sentIntro = await sendMedia(chat,lead,"intro_audio","media:intro:"+lead.id);
