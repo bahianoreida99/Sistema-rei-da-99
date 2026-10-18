@@ -236,13 +236,16 @@ const campaignInput = [
   ["Documento do carro REF:D005","documento","D005"],
 ];
 const organic=[],campaigns=[];
-for(let i=0;i<10;i++) await caseRun(0,i,"mensagem neutra #"+(i+1),async()=>{
-  const chat=digits(10,i),before=tables.leads.length;
+for(let i=0;i<10;i++) await caseRun(0,i,"mensagem neutra ou saudação #"+(i+1),async()=>{
+  const chat=digits(10,i),before=tables.leads.length,sentBefore=outbound.length;
   const samples=["Oi, bom dia","Tudo bem?","Obrigado","Bom final de semana","Quero falar com você","Olá","Enviei mensagem errada","Boa noite","Tudo ótimo","Como vai?"];
   const result=await post("unknown-"+i,chat,samples[i]);
   assert.equal(result.classified,"unknown");
   assert.equal(tables.leads.length,before);
   assert.equal(relatedLead(chat),undefined);
+  const shouldGreet=[0,1,5,7,9].includes(i);
+  assert.equal(outbound.length,sentBefore+(shouldGreet?1:0));
+  if(shouldGreet)assert.match(outbound.at(-1).text,/Oi! Tudo bem|Oi, .*Tudo bem/i);
 });
 for(let i=0;i<10;i++) await caseRun(1,i,"orgânico "+organicInput[i][1]+" #"+(i+1),async()=>{
   const chat=digits(11,i),[body,service]=organicInput[i],before=outbound.length;
@@ -354,6 +357,99 @@ for(let i=0;i<10;i++) await caseRun(9,i,"entrega e pagamento "+(i+1),async()=>{
   result=await req("admin/payment",{lead_id:lead.id},auth);
   assert.ok(result.error,"Repeat payment must be rejected");
 });
+
+
+// 1,000 isolated multi-turn conversations exercising the deterministic sales funnel.
+// All contacts, messages and identifiers are synthetic; WAHA and Supabase remain mocked.
+const conversationNames = [
+  "Carlos Silva","Ana Souza","João Pedro","Maria","Lucas Pereira","Bruna",
+  "Pedro","Mariana","João","Carla","WhatsApp User","5511999999999",
+  "Teste automatizado","Contato","d'Ávila","Fernanda Costa","Rafael","Luísa"
+];
+function expectedFirstName(raw) {
+  const normalized=String(raw||"").normalize("NFD").replace(/[\\u0300-\\u036f]/g,"").toLowerCase().replace(/[^\\p{L}\\p{N}@._+-]+/gu," ").replace(/\\s+/g," ").trim();
+  const generic=new Set(["whatsapp","whatsapp user","user","unknown","unknown contact","sem nome","sem identificacao","teste","teste automatizado","teste anonimo","contato","cliente","eu","eu pessoal","atendimento"]);
+  if(!raw||generic.has(normalized)||/@|^\\+?\\d[\\d\\s()+-]*$/.test(raw))return "";
+  const token=String(raw).replace(/[^\\p{L}\\p{M}'’.-]+/gu," ").trim().split(/\\s+/)[0]?.replace(/[.]+$/,"")||"";
+  if(!/^\\p{L}[\\p{L}\\p{M}'’-]{0,23}$/u.test(token)||generic.has(token.normalize("NFD").replace(/[\\u0300-\\u036f]/g,"").toLowerCase()))return "";
+  return token.charAt(0).toLocaleUpperCase("pt-BR")+token.slice(1).toLocaleLowerCase("pt-BR");
+}
+async function postConversation(id,chat,body,name) {
+  return req("webhook/waha",{event:"message",session:"default",payload:{
+    id,from:chat,body,fromMe:false,notifyName:name
+  }},hook);
+}
+const conversationReports=[];
+const conversationTypes=[
+  {first:"Oi",second:"Quero criar conta Uber",third:"Do zero",fourth:"Pode seguir",service:"uber",final:"documentos"},
+  {first:"Olá, bom dia",second:"Preciso do CRLV",third:"O documento está vencido",fourth:"Pode seguir",service:"documento",final:"documentos"},
+  {first:"Quanto custa?",second:"Uber",third:"Já tenho uma conta bloqueada",fourth:"Concordo, pode mandar os documentos",service:"uber",final:"documentos"},
+  {first:"Quero ajuda com minha conta Uber",second:"Minha CNH venceu",third:"Quanto tempo demora?",fourth:"Pode seguir",service:"uber",final:"documentos"},
+  {first:"Preciso de ajuda com documento do carro CRLV",second:"Tenho uma pendência no licenciamento",third:"Não",fourth:"Pode seguir",service:"documento",final:"documentos"},
+];
+for(let i=0;i<1000;i++){
+  const chat=digits(30+Math.floor(i/100),i%100);
+  const name=conversationNames[i%conversationNames.length];
+  const first=expectedFirstName(name);
+  const scenario=conversationTypes[i%conversationTypes.length];
+  const base=outbound.length;
+  try{
+    let r=await postConversation("conv-"+i+"-1",chat,scenario.first,name);
+    assert.equal(outbound.length,base+1,"every conversation opening must receive exactly one response");
+    const firstReply=outbound.at(-1).text;
+    if(isNaN(i))throw Error("unreachable");
+    if(scenario.first==="Oi"||scenario.first==="Olá, bom dia"){
+      assert.match(firstReply,/Tudo bem/i);
+      assert.match(firstReply,/Uber/);
+      assert.match(firstReply,/CRLV/);
+      if(first)assert.ok(firstReply.includes(first),"greeting should use the contact's first name");
+      else assert.doesNotMatch(firstReply,/Oi, (?:WhatsApp|Teste|Contato|5511|User)!/i);
+      assert.equal(relatedLead(chat),undefined,"greeting alone must not pollute the sales Kanban");
+    } else {
+      assert.ok(firstReply.length>35);
+      if(scenario.first==="Quanto custa?"){
+        assert.match(firstReply,/R\\$ 350,00/);
+        assert.match(firstReply,/R\\$ 150,00/);
+      } else {
+        assert.match(firstReply,/R\\$ (?:350|150),00/);
+      }
+      if(first)assert.ok(firstReply.includes(first),"opening should personalize from WhatsApp name");
+    }
+    r=await postConversation("conv-"+i+"-2",chat,scenario.second,name);
+    assert.equal(outbound.length,base+2,"service selection must receive a contextual reply");
+    const lead=relatedLead(chat);
+    assert.ok(lead,"a qualified service must create a lead");
+    assert.equal(lead.service,scenario.service);
+    assert.match(outbound.at(-1).text,/R\\$ (?:350|150),00/);
+    assert.match(outbound.at(-1).text,scenario.service==="uber"?/conta do zero|conta que ja existe/i:/CRLV|documento do carro/i);
+    r=await postConversation("conv-"+i+"-3",chat,scenario.third,name);
+    assert.equal(outbound.length,base+3,"qualification, FAQ or objection must be answered");
+    if(scenario.third==="Do zero"||scenario.third==="O documento está vencido"||scenario.third==="Já tenho uma conta bloqueada"||scenario.third==="Minha CNH venceu"||scenario.third==="Tenho uma pendência no licenciamento"){
+      assert.equal(lead.conversation_state,"offer_consent","the customer's answer should advance the funnel to consent");
+      assert.match(outbound.at(-1).text,/pode seguir|quer seguir/i);
+    }
+    r=await postConversation("conv-"+i+"-4",chat,scenario.fourth,name);
+    assert.equal(outbound.length,base+4,"consent or document request must receive one reply");
+    assert.equal(lead.conversation_state,"collecting_documents");
+    assert.match(outbound.at(-1).text,/CNH|CRLV|documento do carro/i);
+    assert.match(outbound.at(-1).text,/E-mail/i);
+    assert.equal(lead.stage,"conversando");
+    conversationReports.push({number:i+1,scenario:i%conversationTypes.length,service:lead.service,personalized:Boolean(first),status:"passed"});
+  }catch(error){
+    console.error("CONVERSATION_1000_FAIL",i+1,{chat,name,scenario,error:String(error)});
+    throw error;
+  }
+}
+console.log("CONVERSATION_1000_REPORT "+JSON.stringify({
+  total:conversationReports.length,
+  passed:conversationReports.filter(x=>x.status==="passed").length,
+  failed:0,
+  scenarios:conversationTypes.map((x,i)=>({scenario:i+1,service:x.service,cases:conversationReports.filter(c=>c.scenario===i).length})),
+  personalization:conversationReports.filter(x=>x.personalized).length,
+  transport:"mocked Supabase and WAHA",
+  liveMessagesSent:0
+}));
+
 assert.equal(successCount,100);
 assert.equal(checks.length,100);
 assert.equal(checks.filter(x=>x.status==="passed").length,100);
