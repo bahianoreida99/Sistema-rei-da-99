@@ -401,10 +401,10 @@ const faqInputs=[
   ["Achei caro","valor|pagamento|pagar"],["Tem garantia?","aprova|garant|requisitos"],
   ["Quais documentos preciso?","CNH|CRLV"],["É seguro mandar meus dados?","dados|senha|documentos"],
   ["Como anda meu pedido?","etapa|atendimento|análise"],["Aceita Pix?","pagamento|Pix|pagar"],
-  ["Minha foto ficou borrada","foto|imagem|arquivo"],["Minha conta Uber está bloqueada?","requisitos|Uber|situação"],
+  ["Minha foto ficou borrada","foto|imagem|arquivo"],["Minha conta Uber está bloqueada?","requisitos|Uber|situação|análise|aprovação|liberação"],
   ["Quero documento falso","n[aã]o|irregular"],["Quanto custa e qual o prazo?","R\\$ 350,00"],
   ["Tá muito caro, mas dá pra pagar depois?","paga|valor|pagamento"],
-  ["Minha CNH venceu, dá pra analisar?","Uber|requisitos|aprova|situação"],
+  ["Minha CNH venceu, dá pra analisar?","Uber|requisitos|aprova|situação|análise|liberação"],
   ["Qual o valor, aceita pix e demora quanto?","R\\$ 350,00"]
 ];
 for(let i=0;i<faqInputs.length;i++){
