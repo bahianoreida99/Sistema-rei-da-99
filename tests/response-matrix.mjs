@@ -82,7 +82,7 @@ for(const [kind,phrases] of Object.entries(samples)){
           assert.match(a.text,new RegExp("R\\$ "+(lead.service==="uber"?"350":"150")+",00"));
         }
         unique.add(a.text);
-        }catch(error){failures.add(kind+" / "+phrase+": "+String(error.message));}
+        }catch(error){failures.add(kind+" / "+phrase+": "+String(error.message).replace(/^Grounding .*? -> /,"Answer: ").slice(0,170));}
       }
     }
   }
