@@ -828,9 +828,12 @@ async function sendDocumentProgress(
   const pendingCnh = current.filter(d => d.kind === "cnh_sem_lado" && d.status !== "rejected");
   // Unclassified uploads may ALREADY be the requested CRLV/selfie/CNH.
   // Do not tell the customer to resend those files before identifying them.
-  const pending = [...pendingUnknown,...pendingCnh].sort((a:any,b:any) =>
-    (Date.parse(b.received_at || "") || 0) - (Date.parse(a.received_at || "") || 0));
-  const pendingLatest = pending[0];
+  const latestUnknown = pendingUnknown.map((item:any,index:number)=>({item,index}))
+    .sort((a:any,b:any) => ((Date.parse(b.item.received_at||"")||0) -
+      (Date.parse(a.item.received_at||"")||0)) || b.index-a.index)[0]?.item;
+  const latestCnh = pendingCnh.map((item:any,index:number)=>({item,index}))
+    .sort((a:any,b:any) => ((Date.parse(b.item.received_at||"")||0) -
+      (Date.parse(a.item.received_at||"")||0)) || b.index-a.index)[0]?.item;
   const unresolvedCnh = pendingCnh.length > 0 &&
     remaining.some(kind => kind === "cnh_frente" || kind === "cnh_verso");
   const missing = remaining.map(kind => "• " + docs[kind]);
@@ -838,8 +841,8 @@ async function sendDocumentProgress(
   const prefix = confirmation.trim() || "OK! ✅";
   const context = (await rows("leads","?id=eq."+encodeURIComponent(lead.id)+"&select=conversation_context"))[0]?.conversation_context || lead.conversation_context || {};
   const ambiguityKey = pendingUnknown.length
-    ? "unknown:" + String(pendingUnknown.at(-1)?.id || "")
-    : unresolvedCnh ? "cnh:" + String(pendingCnh.at(-1)?.id || "") : "";
+    ? "unknown:" + String(latestUnknown?.id || "")
+    : unresolvedCnh ? "cnh:" + String(latestCnh?.id || "") : "";
   const askedBefore = ambiguityKey && context.last_document_clarification_key === ambiguityKey;
   let message: string;
   if (pendingUnknown.length || unresolvedCnh) {
@@ -869,10 +872,10 @@ async function sendDocumentProgress(
     ...(ambiguityKey && !askedBefore ? {last_document_clarification_key:ambiguityKey} : {})
   };
   await update("leads",lead.id,{
-    conversation_state:missing.length ? "collecting_documents" : "awaiting_review",
+    conversation_state:(missing.length || pendingUnknown.length || unresolvedCnh) ? "collecting_documents" : "awaiting_review",
     conversation_context:nextContext,
   });
-  if (!missing.length) {
+  if (!missing.length && pendingUnknown.length===0 && !unresolvedCnh) {
     const audioSent = await sendMedia(chat,lead,"complete_audio","media:complete:"+lead.id+resetTestSuffix(lead));
     const latestContext = (await rows("leads","?id=eq."+encodeURIComponent(lead.id)+"&select=conversation_context"))[0]?.conversation_context || nextContext;
     if (audioSent && !latestContext.origin_confirmed && !latestContext.origin_question_sent_at) {
@@ -1448,9 +1451,9 @@ async function webhook(body: any) {
         : uploaded.kind === "cnh_completa"
           ? "OK! ✅ Recebi sua CNH digital com frente e verso no mesmo arquivo. Ela ainda precisa de conferência."
         : uploaded.kind === "cnh_sem_lado"
-          ? "OK! ✅ Recebi sua CNH. Ela é digital e contém frente e verso no mesmo arquivo, ou é apenas a frente/verso? Assim consigo identificar corretamente."
+          ? "OK! ✅ Recebi sua CNH."
         : uploaded.kind === "outro"
-          ? "Recebi o arquivo, mas ainda não consegui confirmar o tipo com segurança. Me diga se é CNH, CRLV ou selfie."
+          ? "OK! ✅ Arquivo recebido."
         : "OK! ✅ Recebi: *" + (docs[uploaded.kind] || uploaded.kind) + "*. Vou conferir a legibilidade antes de validar.";
     await sendDocumentProgress(chat,lead,mid,confirmation,"receipt");
   } else if (!p.hasMedia && (sideReply || digitalReply || docTypeReply)) {
