@@ -795,7 +795,7 @@ function identifyDocument(text: string, hint: string, confidence: number, method
         if (license) kind = "cnh_sem_lado";
         note = "Há referências à frente e ao verso. Confirme qual lado foi enviado.";
       } else if (side) kind = family + "_" + side;
-      else if (supplied.startsWith(family + "_") && supplied !== "cnh_sem_lado") kind = supplied;
+      else if (supplied === family + "_frente" || supplied === family + "_verso") kind = supplied;
       else if (license) { kind = "cnh_sem_lado"; note = "CNH reconhecida. Confirme se é frente ou verso."; }
       else note = "RG identificado. Confirme se é frente ou verso.";
     }
