@@ -1108,7 +1108,7 @@ async function webhook(body: any) {
       email ? "OK! ✅ Registrei seu e-mail." : "Entendi! 😊 Pode mandar os documentos um por vez. Vou confirmar cada recebimento e te dizer somente o que ainda falta.",
       "guidance");
   } else if (state === "awaiting_review") {
-    await send(chat,"Recebemos os itens solicitados. ✅ O Baiano vai conferir os documentos antes de validar e avançar o atendimento.",lead,"review-status:"+mid,"guidance_complete");
+    await send(chat,"Recebemos todos os itens solicitados! ✅ O Baiano vai conferir os documentos antes de validar e avançar o atendimento.",lead,"review-status:"+mid,"guidance_complete");
   } else {
     await send(chat,serviceDiscovery(lead,contact),lead,"sales:discovery:"+mid,"sales_discovery",{
       nome:firstName(contact.display_name || lead.display_name) || "",
