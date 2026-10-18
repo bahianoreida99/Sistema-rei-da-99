@@ -924,6 +924,32 @@ async function checkIdleBatches(nowMs=Date.now()) {
   return {asked};
 }
 
+
+async function completeDocumentBatch(chat:string,lead:any,mid:string,now:string) {
+  const files=await rows("documents","?lead_id=eq."+encodeURIComponent(lead.id)+"&select=kind,status");
+  const complete=Boolean(lead.email) &&
+    requiredFor(lead).every(kind=>hasDocKind(files,kind)) &&
+    !files.some(file=>file.status!=="rejected" && ["outro","cnh_sem_lado"].includes(file.kind));
+  const original=lead.conversation_context||{};
+  const next={...original,batch_confirmed_at:now,batch_question_sent_at:null,batch_has_uploads:false};
+  const saved=await update("leads",lead.id,{conversation_state:"awaiting_review",conversation_context:next});
+  lead=saved||lead;
+  if(complete) {
+    const delivered=await sendMedia(chat,lead,"complete_audio","media:complete:"+lead.id+resetTestSuffix(lead));
+    if(!delivered)throw Error("Áudio final não configurado");
+    const current=(await getLead(lead.id))?.conversation_context||next;
+    if(!current.origin_question_sent_at && !current.origin_confirmed){
+      await send(chat,leadOriginQuestion,lead,"origin:question:"+lead.id+resetTestSuffix(lead));
+      await update("leads",lead.id,{conversation_context:{...current,origin_question_sent_at:now}});
+    }
+  } else {
+    // The existing final audio says all requested documents were received.
+    // Send it only when that statement is consistent with the recorded files.
+    await send(chat,"Perfeito! Registrei que você terminou os envios. O Baiano vai conferir os arquivos e avisar por aqui se precisar de algum ajuste.",lead,"batch:review:"+mid);
+  }
+  return {confirmed:true,all_documents_received:complete};
+}
+
 async function mediaUpload(p: any, lead: any, msg: any, kind: string) {
   const mime = String(p.media?.mimetype || p.media?.mimeType || "");
   const media = String(p.media?.url || "");
