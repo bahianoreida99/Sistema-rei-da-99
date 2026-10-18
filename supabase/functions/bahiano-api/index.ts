@@ -309,14 +309,15 @@ function createMediaBridge(deps:any) {
 }
 
 const {sendMedia,mediaRoute}=createMediaBridge({rows,insert,checkAdmin,response,up,apiHeaders,url,dbKey,wahaUrl,wahaKey});
-const classify = (s: string) =>
-  /(documento do carro|crlv|licenciamento|ve[ií]culo|carro fora do ano)/i.test(
-    s,
-  )
-    ? "documento"
-    : /(uber|cnh|habilita|ear|cadastro|motorista)/i.test(s)
-      ? "uber"
-      : "desconhecido";
+const classify = (s: string) => {
+  const normalized = normalizeConversation(s);
+  const unrelatedAccount = /(?:conta|cadastro).{0,20}(?:banco|bancaria|luz|agua|energia|instagram|facebook|email|gmail|gov\.?br|netflix|tiktok|jogo|telefone)/.test(normalized);
+  if (/(?:documento do carro|crlv|licenciamento|ve[ií]culo|carro fora do ano)/i.test(s) ||
+      /^(?:documento|documentacao|regularizar documento)$/.test(normalized)) return "documento";
+  if (/(?:uber|cnh|habilita|ear|cadastro de motorista)/i.test(s)) return "uber";
+  if (!unrelatedAccount && /(?:fazer|criar|abrir|quero|preciso|ativar|recuperar|desbloquear).{0,30}\bconta\b|\bconta\b.{0,25}(?:bloqueada|banida|desativada)/.test(normalized)) return "uber";
+  return "desconhecido";
+};
 const isLead = (s: string) =>
   /(uber|cnh|habilita|ear|cadastro|motorista|documento do carro|crlv|carro fora do ano|licenciamento|ve[ií]culo.{0,45}documento|documento.{0,45}ve[ií]culo|rodar|regulariz|or[cç]amento|pre[cç]o|\bREF\s*[:#-])/i.test(
     s,
@@ -1031,7 +1032,8 @@ async function webhook(body: any) {
   const code = campaign(message);
   let lead = (await rows("leads", `?contact_id=eq.${contact.id}&select=*`))[0];
   // Restore a returning archived contact to the Kanban while retaining history.
-  if (lead?.conversation_context?.kanban_archived_at && contact.classification !== "personal") {
+  if (lead?.conversation_context?.kanban_archived_at &&
+      !lead.conversation_context?.handoff_reason && contact.classification !== "personal") {
     const {kanban_archived_at: _archiveMarker, ...activeContext} = lead.conversation_context;
     const reopened = await update("leads",lead.id,{conversation_context:activeContext});
     lead = reopened || {...lead,conversation_context:activeContext};
@@ -1128,6 +1130,62 @@ async function webhook(body: any) {
     last_message_at: new Date().toISOString(),
   });
   if (contact.classification === "personal") return { classified: "personal" };
+
+  // SINGLE INTAKE WORKFLOW:
+  // A generic first message gets only the approved short greeting. The next
+  // off-topic reply is sent to Bahiano's manual inbox, never the sales Kanban.
+  // Commercial intent skips qualification/consent text and immediately sends
+  // presentation voice + the exact document checklist once.
+  if (lead?.conversation_context?.handoff_reason === "out_of_scope") {
+    return {lead_id:lead.id,manual_handoff:true,auto_reply:false};
+  }
+  if (lead && lead.service === "desconhecido" && !p.hasMedia) {
+    if (lead.conversation_context?.generic_prompt_sent_at || lead.welcome_sent_at) {
+      const nextContext = {
+        ...(lead.conversation_context || {}),
+        handoff_reason:"out_of_scope",
+        handoff_at:new Date().toISOString(),
+        kanban_archived_at:new Date().toISOString(),
+      };
+      await update("leads",lead.id,{
+        automation_paused:true,automation_pause_reason:"manual",
+        conversation_state:"human_handoff",conversation_context:nextContext,
+      });
+      return {lead_id:lead.id,manual_handoff:true,auto_reply:false};
+    }
+    if (await botOn(chat)) {
+      await send(chat,"Opa! Tudo bem? como posso ajudar?",lead,"sales:greeting:"+lead.id);
+      await update("leads",lead.id,{
+        welcome_sent_at:new Date().toISOString(),
+        conversation_state:"discover_service",
+        conversation_context:{...(lead.conversation_context||{}),generic_prompt_sent_at:new Date().toISOString()}
+      });
+    }
+    return {lead_id:lead.id,generic_greeting:true};
+  }
+  if (lead && lead.service !== "desconhecido" &&
+      !lead.automation_paused && await botOn(chat) &&
+      !["producao","finalizados","pagos"].includes(lead.stage) &&
+      !lead.conversation_context?.intro_onboarding_started_at &&
+      (!lead.welcome_sent_at ||
+        ["discover_service","qualify_uber","qualify_documento","offer_consent"].includes(String(lead.conversation_state||"")))) {
+    // Do not confirm that audio was delivered until WAHA accepted it. A failed
+    // send causes webhook retry instead of silently skipping the presentation.
+    const sentIntro = await sendMedia(chat,lead,"intro_audio","media:intro:"+lead.id);
+    if (!sentIntro) throw Error("Áudio de apresentação ausente ou desabilitado");
+    await send(chat,documentChecklist(lead,contact),lead,"sales:documents:intro:"+lead.id);
+    const updatedLead = await update("leads",lead.id,{
+      welcome_sent_at:lead.welcome_sent_at||new Date().toISOString(),
+      conversation_state:"collecting_documents",
+      conversation_context:{
+        ...(lead.conversation_context||{}),
+        intro_onboarding_started_at:new Date().toISOString(),
+      }
+    });
+    lead=updatedLead||lead;
+    if (!p.hasMedia) return {lead_id:lead.id,stage:lead.stage,started_documents:true};
+  }
+
   // No repeat generic welcome for a person contacted in the previous 10 days.
   // Campaign leads and Uber-related conversations keep normal handling.
   // Ongoing CRLV workflows also remain available for substantive replies and files.
@@ -1286,12 +1344,10 @@ async function webhook(body: any) {
     });
   }
   if (serviceResolvedNow && !lead.automation_paused && await botOn(chat)) {
-    const state = lead.issue ? "offer_consent" : lead.service === "documento" ? "qualify_documento" : "qualify_uber";
-    await send(chat, salesOpening(lead, contact), lead, "sales:resolved:" + mid,
-      lead.service === "documento" ? "welcome_documento" : "welcome_uber",
-      { nome: firstName(contact.display_name || lead.display_name) || "", saudacao: firstName(contact.display_name || lead.display_name) ? ", " + firstName(contact.display_name || lead.display_name) : "", valor: lead.service === "documento" ? "R$ 150,00" : "R$ 350,00" });
-    await update("leads", lead.id, { conversation_state: state, welcome_sent_at: lead.welcome_sent_at || now });
-    return { lead_id: lead.id, stage: lead.stage, service_resolved: true };
+    // A service switch updates the checklist, not the old sales presentation.
+    await send(chat,documentChecklist(lead,contact),lead,"sales:switched:"+mid);
+    await update("leads",lead.id,{conversation_state:"collecting_documents",welcome_sent_at:lead.welcome_sent_at||now});
+    return {lead_id:lead.id,stage:lead.stage,service_resolved:true};
   }
   if (
     lead.automation_paused ||
