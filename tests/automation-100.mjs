@@ -420,7 +420,7 @@ for(let i=0;i<1000;i++){
     assert.ok(lead,"a qualified service must create a lead");
     assert.equal(lead.service,scenario.service);
     assert.match(outbound.at(-1).text,/R\$ (?:350|150),00/);
-    assert.match(outbound.at(-1).text,scenario.service==="uber"?/conta do zero|conta que ja existe/i:/CRLV|documento do carro/i);
+    assert.match(outbound.at(-1).text,scenario.service==="uber"?/conta do zero|conta que j[aá] existe/i:/CRLV|documento do carro/i);
     r=await postConversation("conv-"+i+"-3",chat,scenario.third,name);
     assert.equal(outbound.length,base+3,"qualification, FAQ or objection must be answered");
     if(scenario.third==="Do zero"||scenario.third==="O documento está vencido"||scenario.third==="Já tenho uma conta bloqueada"||scenario.third==="Minha CNH venceu"||scenario.third==="Tenho uma pendência no licenciamento"){
@@ -439,6 +439,7 @@ for(let i=0;i<1000;i++){
     throw error;
   }
 }
+assert.equal(conversationReports.length,1000,"All 1,000 multi-turn conversations must pass");
 console.log("CONVERSATION_1000_REPORT "+JSON.stringify({
   total:conversationReports.length,
   passed:conversationReports.filter(x=>x.status==="passed").length,
