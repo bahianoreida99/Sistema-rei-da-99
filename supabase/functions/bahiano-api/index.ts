@@ -1166,6 +1166,7 @@ async function webhook(body: any) {
     return {lead_id:lead.id,generic_greeting:true};
   }
   if (lead && lead.service !== "desconhecido" &&
+      !isGreetingOnly(message) && !isSmallTalkFollowup(message) &&
       !lead.automation_paused && await botOn(chat) &&
       !["producao","finalizados","pagos"].includes(lead.stage) &&
       !lead.conversation_context?.intro_onboarding_started_at &&
