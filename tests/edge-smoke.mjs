@@ -339,7 +339,7 @@ assert.equal(r.first,true);
 assert.equal(leadForChat(neutralChat).stage,"leads");
 assert.equal(leadForChat(neutralChat).source,"whatsapp");
 assert.equal(outbound.length,priorOut+1);
-assert.match(outbound.at(-1).text,/Uber|CRLV/);
+assert.equal(outbound.at(-1).text,"Opa! Tudo bem? como posso ajudar?");
 const siteChat="5511999991022@c.us";
 r=await req("webhook/waha",routedMessage("site-first",siteChat,"Oi, vim pelo site"),hookHeaders);
 assert.equal(leadForChat(siteChat).stage,"leads_campaign");
