@@ -568,6 +568,7 @@ async function sendDocumentProgress(
       missing.join("\n") +
       "\n\nPode enviar um item por vez. Vou atualizar a lista a cada envio."
     : prefix + "\n\n✅ *Recebemos todos os itens solicitados!* O Baiano vai conferir os documentos antes de validar e avançar o atendimento.";
+  await update("leads", lead.id, { conversation_state: missing.length ? "collecting_documents" : "awaiting_review" });
   await send(chat, message, lead, action + ":" + mid,
     missing.length ? "guidance_missing" : "guidance_complete",
     { faltantes: missing.join("\n") });
@@ -928,27 +929,32 @@ async function webhook(body: any) {
     ["producao", "finalizados", "pagos"].includes(lead.stage)
   )
     return { lead_id: lead.id, stage: lead.stage, paused: true };
-  if (/falar com (atendente|pessoa|humano)|atendimento humano/i.test(message)) {
-    await update("leads", lead.id, { automation_paused: true, automation_pause_reason: "manual" });
+  const state = String(lead.conversation_state || (lead.welcome_sent_at ? "collecting_documents" : "discover_service"));
+  if (/falar com (?:um )?(?:atendente|pessoa|humano)|atendimento humano|falar com o baiano|quero falar com alguem/i.test(message)) {
+    await update("leads", lead.id, { automation_paused: true, automation_pause_reason: "manual", conversation_state: "human_handoff" });
     await send(
       chat,
-      "Certo! Vou encaminhar seu atendimento ao Baiano. Você pode continuar conversando por aqui.",
+      "Claro! Vou encaminhar seu atendimento ao Baiano para continuar com você por aqui. 😊",
       lead,
       "human:" + mid,
       "human",
     );
   } else if (p.hasMedia) {
+    if (uploaded && uploaded.kind !== "comprovante" && !["producao", "finalizados", "pagos"].includes(lead.stage)) {
+      const updatedLead = await update("leads", lead.id, { conversation_state: "collecting_documents" });
+      lead = updatedLead || { ...lead, conversation_state: "collecting_documents" };
+    }
     const confirmation = !uploaded
-      ? "Não conseguimos registrar esse arquivo. Envie uma imagem JPG/PNG/WebP ou PDF de até 12 MB."
+      ? "Não consegui registrar esse arquivo"
       : uploaded.kind === "comprovante"
-        ? "OK! ✅ Recebemos o comprovante, mas ele ainda precisa de conferência."
+        ? "OK! ✅ Recebi o comprovante, mas ele ainda precisa de conferência."
         : uploaded.kind === "cnh_completa"
-          ? "OK! ✅ Recebemos sua CNH digital com frente e verso no mesmo arquivo. Ela ainda precisa de conferência."
+          ? "OK! ✅ Recebi sua CNH digital com frente e verso no mesmo arquivo. Ela ainda precisa de conferência."
         : uploaded.kind === "cnh_sem_lado"
-          ? "OK! ✅ Recebemos sua CNH. Ela é digital (frente e verso no mesmo arquivo), apenas frente ou apenas verso? Responda para identificarmos corretamente."
+          ? "OK! ✅ Recebi sua CNH. Ela é digital, com os dois lados no mesmo arquivo, ou é apenas a frente/verso? Assim consigo identificar corretamente."
         : uploaded.kind === "outro"
-          ? "Recebemos o arquivo, mas precisamos confirmar o tipo. Informe se é CNH, CRLV ou selfie; ele não será validado antes da conferência."
-        : "OK! ✅ Recebemos: *" + (docs[uploaded.kind] || uploaded.kind) + "*. Aguardando conferência.";
+          ? "Recebi o arquivo, mas ainda não consegui identificar o tipo com segurança. Me diga se é CNH, CRLV ou selfie."
+        : "OK! ✅ Recebi: *" + (docs[uploaded.kind] || uploaded.kind) + "*. Vou conferir a legibilidade antes de validar.";
     await sendDocumentProgress(chat,lead,mid,confirmation,"receipt");
   } else if (!p.hasMedia && ((proposed !== "outro" && proposed !== "comprovante") || sideReply || digitalReply)) {
     const pending = await rows("documents", "?lead_id=eq." + encodeURIComponent(lead.id) + "&status=eq.received&order=received_at.desc&limit=20");
@@ -976,16 +982,130 @@ async function webhook(body: any) {
         "*. O Baiano ainda vai conferir a legibilidade e os dados.",
         "identify-reply");
     } else {
-      await sendDocumentProgress(chat,lead,mid,
-        "Entendi! Não encontrei um único arquivo recente para associar essa informação. Envie o documento com uma legenda indicando o tipo.",
-        "identify-reply");
+      if (asksDigitalCnh(message) && !candidates.length) {
+        if (state === "collecting_documents" || state === "awaiting_review") {
+          await sendDocumentProgress(chat,lead,mid,
+            "Sim! 😊 A CNH digital pode ser enviada em um único arquivo, desde que frente e verso estejam visíveis. Ela ainda será conferida.",
+            "digital-cnh");
+        } else {
+          await send(chat,"Sim! 😊 A CNH digital pode ser enviada em um único arquivo, desde que frente e verso estejam visíveis. O arquivo será conferido antes de validar. Quer seguir com o atendimento?",lead,"digital-cnh:"+mid,"sales_faq");
+        }
+      } else {
+        await sendDocumentProgress(chat,lead,mid,
+          "Entendi! Não encontrei um único arquivo recente para associar essa informação. Envie o arquivo com uma legenda indicando o tipo.",
+          "identify-reply");
+      }
     }
-  } else if (/valor|pre[cç]o|quanto|custa/i.test(message)) {
-    await send(chat, "O valor do serviço é " + (lead.service === "documento" ? "R$ 150,00" : "R$ 350,00") + ". O pagamento acontece após a entrega do serviço contratado. O Baiano vai analisar os documentos antes de confirmar a viabilidade.", lead, "price:" + mid,"price");
-  } else if (!p.hasMedia && (firstReply || email || message.trim())) {
+  } else if (lead.service === "desconhecido" || state === "discover_service") {
+    await update("leads", lead.id, { conversation_state: "discover_service" });
+    await send(chat, serviceDiscovery(lead, contact), lead, "sales:discovery:" + mid, "sales_discovery", {
+      nome: firstName(contact.display_name || lead.display_name) || "",
+      saudacao: firstName(contact.display_name || lead.display_name) ? ", " + firstName(contact.display_name || lead.display_name) : "",
+      valor_uber: "R$ 350,00",
+      valor_crlv: "R$ 150,00",
+    });
+  } else if (asksDocuments(message)) {
+    const updatedLead = await update("leads", lead.id, { conversation_state: "collecting_documents" });
+    lead = updatedLead || { ...lead, conversation_state: "collecting_documents" };
+    await send(chat, documentChecklist(lead, contact), lead, "sales:documents:" + mid, "sales_documents", {
+      nome: firstName(contact.display_name || lead.display_name) || "",
+      documentos: requiredFor(lead).map((kind) => "• " + docs[kind]).join("\n"),
+    });
+  } else if (asksDigitalCnh(message)) {
+    const answer = "Sim! 😊 A CNH digital pode ser enviada em um único arquivo, desde que frente e verso estejam visíveis. Ela será conferida antes de validar.";
+    if (state === "collecting_documents" || state === "awaiting_review") {
+      await sendDocumentProgress(chat,lead,mid,answer,"digital-cnh");
+    } else {
+      await send(chat,answer + "\n\nQuer que eu te passe os próximos passos?",lead,"digital-cnh:"+mid,"sales_faq");
+    }
+  } else if (asksGuarantee(message)) {
+    const answer = "Prefiro ser transparente: não posso prometer aprovação automática. O Baiano confere os documentos e orienta o atendimento dentro dos requisitos aplicáveis da plataforma e da legislação.";
+    if (state === "collecting_documents" || state === "awaiting_review") await sendDocumentProgress(chat,lead,mid,answer,"faq-guarantee");
+    else await send(chat,answer + "\n\nQuer continuar com a análise do seu caso?",lead,"faq-guarantee:"+mid,"sales_faq");
+  } else if (asksTiming(message)) {
+    const answer = "O prazo depende da situação e da análise dos documentos. Não quero te prometer um prazo sem conferir seu caso primeiro.";
+    if (state === "collecting_documents" || state === "awaiting_review") await sendDocumentProgress(chat,lead,mid,answer,"faq-timing");
+    else await send(chat,answer + "\n\nSe me explicar sua situação, te oriento sobre o próximo passo.",lead,"faq-timing:"+mid,"sales_faq");
+  } else if (/(?:meus documentos|privacidade|meus dados|e seguro|seguranca|senha|codigo de verificacao)/.test(normalizeConversation(message))) {
+    await send(chat,"Envie apenas os documentos necessários para este atendimento. Não envie senhas, códigos de verificação da Uber/WhatsApp nem dados bancários. Os arquivos serão conferidos antes de qualquer validação.",lead,"faq-privacy:"+mid,"sales_faq");
+  } else if (asksHow(message)) {
+    const answer = "Funciona assim: primeiro entendemos sua situação; depois você envia somente os documentos necessários; o Baiano confere os arquivos e avalia o próximo passo. A viabilidade depende dos documentos e dos requisitos aplicáveis, sem promessa de aprovação automática.";
+    if (state === "collecting_documents" || state === "awaiting_review") await sendDocumentProgress(chat,lead,mid,answer,"faq-how");
+    else {
+      const next = state === "qualify_uber"
+        ? "Pra eu te orientar certinho: você está criando a conta do zero ou tentando resolver um problema em uma conta existente?"
+        : state === "qualify_documento"
+          ? "Qual é a pendência no documento do carro (CRLV)?"
+          : "Quer que eu te passe os próximos passos?";
+      await send(chat,answer + "\n\n" + next,lead,"faq-how:"+mid,"sales_faq");
+    }
+  } else if (asksPrice(message)) {
+    const price = lead.service === "documento" ? "R$ 150,00" : "R$ 350,00";
+    const answer = "O valor do serviço é *" + price + "*. O pagamento acontece após a entrega, conforme combinado. A viabilidade é analisada antes de avançar.";
+    if (state === "collecting_documents" || state === "awaiting_review") {
+      await sendDocumentProgress(chat,lead,mid,answer,"price");
+    } else {
+      const next = state === "qualify_uber"
+        ? "E para eu te orientar certinho: é uma conta nova ou uma conta que já existe?"
+        : state === "qualify_documento"
+          ? "Me conta qual é a pendência no CRLV."
+          : "Quer seguir com o atendimento?";
+      await send(chat,answer + "\n\n" + next,lead,"price:"+mid,"price");
+    }
+  } else if (state === "qualify_uber" || state === "qualify_documento") {
+    if (email) {
+      await send(chat,"Obrigado! 😊 Registrei seu e-mail. " + (state === "qualify_uber"
+        ? "Só me confirma: você está criando a conta Uber do zero ou resolvendo algo em uma conta existente?"
+        : "Só me conta qual é a pendência no documento do carro (CRLV)."),
+        lead,"sales:qualify-email:"+mid,"sales_qualify_answer");
+    } else if (isExplicitConsent(message)) {
+      const updatedLead = await update("leads", lead.id, { conversation_state: "collecting_documents" });
+      lead = updatedLead || { ...lead, conversation_state: "collecting_documents" };
+      await send(chat,documentChecklist(lead,contact),lead,"sales:documents:"+mid,"sales_documents",{
+        nome:firstName(contact.display_name || lead.display_name) || "",
+        documentos:requiredFor(lead).map((kind)=>"• "+docs[kind]).join("\n"),
+      });
+    } else {
+      const answer = qualificationResponse(lead,contact,message);
+      const updatedLead = await update("leads",lead.id,{
+        conversation_state:answer.state,
+        conversation_context:answer.context,
+      });
+      lead = updatedLead || {...lead,conversation_state:answer.state,conversation_context:answer.context};
+      await send(chat,answer.text,lead,"sales:qualify:"+mid,"sales_qualify_answer",{
+        nome:firstName(contact.display_name || lead.display_name) || "",
+        valor:lead.service === "documento" ? "R$ 150,00" : "R$ 350,00",
+      });
+    }
+  } else if (state === "offer_consent") {
+    if (isExplicitConsent(message) || isSimpleYes(message)) {
+      const updatedLead = await update("leads", lead.id, { conversation_state: "collecting_documents" });
+      lead = updatedLead || { ...lead, conversation_state: "collecting_documents" };
+      await send(chat,documentChecklist(lead,contact),lead,"sales:documents:"+mid,"sales_documents",{
+        nome:firstName(contact.display_name || lead.display_name) || "",
+        documentos:requiredFor(lead).map((kind)=>"• "+docs[kind]).join("\n"),
+      });
+    } else if (isNegative(message)) {
+      await send(chat,"Sem problema! 😊 Fique à vontade. Se quiser, posso esclarecer alguma dúvida agora ou você pode retomar o atendimento quando preferir.",lead,"sales:decline:"+mid,"sales_offer");
+    } else {
+      await send(chat,"Claro! 😊 Se estiver de acordo com o valor e quiser seguir, diga *pode seguir*. Aí eu te passo a lista de documentos.",lead,"sales:offer:"+mid,"sales_offer",{
+        nome:firstName(contact.display_name || lead.display_name) || "",
+        valor:lead.service === "documento" ? "R$ 150,00" : "R$ 350,00",
+      });
+    }
+  } else if (state === "collecting_documents") {
     await sendDocumentProgress(chat,lead,mid,
-      email ? "OK! ✅ Registrei seu e-mail." : "OK! ✅ Vou acompanhando os documentos enviados.",
+      email ? "OK! ✅ Registrei seu e-mail." : "Entendi! 😊 Pode mandar os documentos um por vez. Vou confirmar cada recebimento e te dizer somente o que ainda falta.",
       "guidance");
+  } else if (state === "awaiting_review") {
+    await send(chat,"Recebemos os itens solicitados. ✅ O Baiano vai conferir os documentos antes de validar e avançar o atendimento.",lead,"review-status:"+mid,"guidance_complete");
+  } else {
+    await send(chat,serviceDiscovery(lead,contact),lead,"sales:discovery:"+mid,"sales_discovery",{
+      nome:firstName(contact.display_name || lead.display_name) || "",
+      saudacao:firstName(contact.display_name || lead.display_name) ? ", " + firstName(contact.display_name || lead.display_name) : "",
+      valor_uber:"R$ 350,00",
+      valor_crlv:"R$ 150,00",
+    });
   }
   return { lead_id: lead.id, stage: lead.stage };
 }
