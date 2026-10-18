@@ -382,6 +382,21 @@ function wasRecentlyContacted(contact: any, existed: boolean): boolean {
   return Number.isFinite(previous) && previous <= Date.now() &&
     (Date.now() - previous) < 10 * 24 * 60 * 60 * 1000;
 }
+type ReportedOrigin = "indicacao" | "site" | "instagram" | "facebook" | "youtube";
+function recognizeReportedOrigin(value: string): ReportedOrigin | null {
+  const normalized = normalizeConversation(value).replace(/[.!?]+$/,"").trim();
+  const numeric = /^[1-5](?:[\s.)-]*)$/.exec(normalized);
+  if (numeric) return (["indicacao","site","instagram","facebook","youtube"] as ReportedOrigin[])[Number(normalized[0])-1];
+  const shortText = normalized.replace(/^(?:foi|vim|veio|cheguei|conheci|vi|achei|encontrei|pelo|pela|no|na|do|da|por|um|uma|de|o|a|video|atraves|atraves de|atraves do|atraves da|me indicaram|indicacao de)\s+/g,"").trim();
+  if (normalized.length > 95) return null;
+  if (/(?:indicacao|indicaram|indicou|amigo|amiga|conhecido|conhecida|recomendacao|recomendou|boca a boca)/.test(normalized)) return "indicacao";
+  if (/(?:instagram|insta\b)/.test(normalized)) return "instagram";
+  if (/(?:facebook|face\b)/.test(normalized)) return "facebook";
+  if (/(?:youtube|you tube|yt\b)/.test(normalized)) return "youtube";
+  if (/^(?:site|pagina|website|pagina na internet)$/.test(shortText) || /(?:no site|pelo site|do site|atraves do site)/.test(normalized)) return "site";
+  return null;
+}
+const leadOriginQuestion = "Só pra confirmar: onde você conheceu a gente?\n\n1. Indicação\n2. Site\n3. Instagram\n4. Facebook\n5. Vídeo do YouTube\n\nPode responder com o número ou o nome. 😊";
 function isGreetingOnly(value: string): boolean {
   return /^(?:oi+|ola+|opa|e ai|fala|bom dia|boa tarde|boa noite|tudo bem|como vai|oi tudo bem|ola tudo bem|oi bom dia|ola bom dia|oi boa tarde|ola boa tarde|oi boa noite|ola boa noite|bom dia tudo bem|boa tarde tudo bem|boa noite tudo bem)$/.test(normalizeConversation(value));
 }
@@ -708,7 +723,22 @@ async function sendDocumentProgress(
   await send(chat, message, lead, action + ":" + mid,
     missing.length ? "guidance_missing" : "guidance_complete",
     { faltantes: missing.join("\n") });
-  if (!missing.length) await sendMedia(chat,lead,"complete_audio","media:complete:"+lead.id);
+  if (!missing.length) {
+    const audioSent = await sendMedia(chat,lead,"complete_audio","media:complete:"+lead.id);
+    const context = lead.conversation_context || {};
+    if (audioSent && !context.origin_confirmed && !context.origin_question_sent_at) {
+      // The voice message must be delivered successfully before asking.
+      // Message action_key prevents duplicate questions across webhook retries.
+      await send(chat,leadOriginQuestion,lead,"origin:question:"+lead.id);
+      const latest = (await rows("leads","?id=eq."+encodeURIComponent(lead.id)+"&select=conversation_context"))[0];
+      await update("leads",lead.id,{
+        conversation_context:{
+          ...(latest?.conversation_context || context),
+          origin_question_sent_at:new Date().toISOString(),
+        }
+      });
+    }
+  }
   return { missing };
 }
 
@@ -1021,6 +1051,32 @@ async function webhook(body: any) {
       return { classified: "unknown", discovery: true };
     }
     return { classified: "unknown" };
+  }
+  // Capture the customer's answer to the one-time attribution question before
+  // the document-state handlers can mistakenly interpret "3" as another request.
+  if (!p.hasMedia && lead.conversation_context?.origin_question_sent_at &&
+      !lead.conversation_context?.origin_confirmed &&
+      !lead.automation_paused && await botOn(chat)) {
+    const declared = recognizeReportedOrigin(message);
+    if (declared) {
+      const nextContext = {
+        ...(lead.conversation_context || {}),
+        origin_confirmed:declared,
+        origin_confirmed_at:new Date().toISOString(),
+        origin_confirmation_message:message.slice(0,120),
+      };
+      const patch:Record<string,unknown>={conversation_context:nextContext};
+      // "site" is explicitly attributed. Organic Instagram/Facebook/YouTube
+      // and referrals are not proof of Meta Ads and must not enter campaigns.
+      if (declared==="site" && lead.source!=="site") {
+        patch.source="site";
+        if(lead.stage==="leads")patch.stage="leads_campaign";
+      }
+      const updated = await update("leads",lead.id,patch);
+      lead=updated || {...lead,...patch};
+      await send(chat,"Perfeito, obrigado! ✅",lead,"origin:thanks:"+lead.id);
+      return {lead_id:lead.id,stage:lead.stage,reported_origin:declared};
+    }
   }
   const now = new Date().toISOString();
   const proposed = docType(message);
