@@ -324,6 +324,72 @@ assert.equal(greetingLead.service, "desconhecido");
 assert.equal(greetingLead.stage, "leads");
 assert.ok(greetingLead.welcome_sent_at);
 assert.equal(tables.messages.at(-2).lead_id, greetingLead.id);
+// Test: generic first messages must be visible as Leads; verified site/Meta ads
+// attribution must route to Leads campanha (not merely WAHA source:"app").
+const routedMessage=(id,from,body,extra={})=>({
+  ...event(id,body),
+  payload:{...event(id,body).payload,from,...extra}
+});
+const leadForChat=(chat)=>tables.leads.find(lead=>
+  tables.contacts.some(contact=>contact.id===lead.contact_id && contact.chat_id===chat));
+let priorOut=outbound.length;
+const neutralChat="5511999991021@c.us";
+r=await req("webhook/waha",routedMessage("neutral-first",neutralChat,"Posso falar com alguém?"),hookHeaders);
+assert.equal(r.first,true);
+assert.equal(leadForChat(neutralChat).stage,"leads");
+assert.equal(leadForChat(neutralChat).source,"whatsapp");
+assert.equal(outbound.length,priorOut+1);
+assert.match(outbound.at(-1).text,/Uber|CRLV/);
+const siteChat="5511999991022@c.us";
+r=await req("webhook/waha",routedMessage("site-first",siteChat,"Oi, vim pelo site"),hookHeaders);
+assert.equal(leadForChat(siteChat).stage,"leads_campaign");
+assert.equal(leadForChat(siteChat).source,"site");
+const metaChat="5511999991023@c.us";
+r=await req("webhook/waha",routedMessage("meta-first",metaChat,"Oi",{
+  source:"app",referral:{source_type:"ad",source_id:"ad-marker"}
+}),hookHeaders);
+assert.equal(leadForChat(metaChat).stage,"leads_campaign");
+assert.equal(leadForChat(metaChat).source,"site");
+const plainAppChat="5511999991024@c.us";
+await req("webhook/waha",routedMessage("app-first",plainAppChat,"Oi",{source:"app"}),hookHeaders);
+assert.equal(leadForChat(plainAppChat).stage,"leads","WAHA app isn't a marketing source");
+
+const recentChat="5511999991025@c.us";
+const recentId="00000000-0000-4000-8000-000000000825";
+tables.contacts.push({
+  id:recentId,chat_id:recentChat,phone:recentChat.split("@")[0],
+  classification:"unknown",manual_override:false,
+  display_name:"Cliente conhecido",last_message_at:new Date().toISOString()
+});
+priorOut=outbound.length;
+r=await req("webhook/waha",routedMessage("recent-hello",recentChat,"Olá"),hookHeaders);
+assert.equal(r.quiet_recent_contact,true);
+assert.equal(leadForChat(recentChat).stage,"leads");
+assert.equal(outbound.length,priorOut,"recent contact gets no generic repeat greeting");
+r=await req("webhook/waha",routedMessage("recent-uber",recentChat,"Minha conta Uber está bloqueada"),hookHeaders);
+assert.equal(leadForChat(recentChat).service,"uber");
+assert.equal(outbound.length,priorOut+1,"Uber inquiry bypasses 10-day quiet period");
+
+const oldChat="5511999991026@c.us";
+tables.contacts.push({
+  id:"00000000-0000-4000-8000-000000000826",chat_id:oldChat,phone:oldChat.split("@")[0],
+  classification:"unknown",manual_override:false,
+  last_message_at:new Date(Date.now()-11*24*3600*1000).toISOString()
+});
+priorOut=outbound.length;
+r=await req("webhook/waha",routedMessage("old-hello",oldChat,"Oi"),hookHeaders);
+assert.equal(r.first,true);
+assert.equal(outbound.length,priorOut+1,"11-day-old contact may receive greeting again");
+
+const upgradeChat="5511999991027@c.us";
+await req("webhook/waha",routedMessage("upgrade-initial",upgradeChat,"Oi"),hookHeaders);
+assert.equal(leadForChat(upgradeChat).stage,"leads");
+r=await req("webhook/waha",routedMessage("upgrade-ad",upgradeChat,"Encontrei vocês no anúncio da Meta Ads"),hookHeaders);
+assert.equal(leadForChat(upgradeChat).source,"site");
+assert.equal(leadForChat(upgradeChat).stage,"conversando","existing lead moves into conversation without losing ad attribution");
+console.log("PASS: first-contact routing, WAHA app ignored as source, Meta referral, site attribution, 10-day generic silence and Uber exception.");
+
+const countBeforePersonal=tables.leads.length;
 tables.contacts.push({
   id: "00000000-0000-4000-8000-000000000999",
   chat_id: "5511999990002@c.us",
@@ -341,7 +407,7 @@ r = await req(
   },
   hookHeaders,
 );
-assert.equal(tables.leads.length, count + 1);
+assert.equal(tables.leads.length, countBeforePersonal);
 // Media and payment text never move a finished client back to Conversando.
 lead.first_reply_at = null;
 r = await req(

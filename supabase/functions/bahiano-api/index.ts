@@ -358,6 +358,30 @@ function firstName(value: unknown): string {
 function helloLine(name: string): string {
   return name ? "Oi, " + name + "! Tudo bem? 😊" : "Oi! Tudo bem? 😊";
 }
+function hasCampaignOrigin(message: string, payload: any): boolean {
+  const normalized = normalizeConversation(message);
+  // "source: app" is a WAHA transport label, NOT proof of a Meta advertisement.
+  const fromMessage = Boolean(campaign(message)) ||
+    /(?:vim|veio|cheguei|achei|encontrei|vi|cliquei|entrei).{0,28}(?:site|anuncio|campanha|publicidade|link patrocinado)/.test(normalized) ||
+    /(?:pelo|do|no|atraves do|atraves da) (?:site|anuncio|link do site|anuncio do facebook|anuncio do instagram)/.test(normalized) ||
+    /(?:meta ads|facebook ads|instagram ads|anuncio patrocinado|link patrocinado|utm_campaign|utm_source|ctwa_clid|fbclid)/.test(normalized);
+  const referral = payload?.referral || payload?.referralInfo || payload?._data?.referral ||
+    payload?._data?.message?.extendedTextMessage?.contextInfo?.externalAdReply ||
+    payload?._data?.message?.imageMessage?.contextInfo?.externalAdReply ||
+    payload?._data?.contextInfo?.externalAdReply;
+  const fromReferral = Boolean(referral && typeof referral === "object" && (
+    referral.source_type === "ad" || referral.sourceType === "ad" ||
+    referral.source_id || referral.sourceId || referral.ctwa_clid ||
+    referral.click_id || referral.ad_id || referral.adId ||
+    referral.thumbnailUrl || referral.source_url
+  ));
+  return fromMessage || fromReferral;
+}
+function wasRecentlyContacted(contact: any, existed: boolean): boolean {
+  const previous = existed ? Date.parse(String(contact?.last_message_at || "")) : NaN;
+  return Number.isFinite(previous) && previous <= Date.now() &&
+    (Date.now() - previous) < 10 * 24 * 60 * 60 * 1000;
+}
 function isGreetingOnly(value: string): boolean {
   return /^(?:oi+|ola+|opa|e ai|fala|bom dia|boa tarde|boa noite|tudo bem|como vai|oi tudo bem|ola tudo bem|oi bom dia|ola bom dia|oi boa tarde|ola boa tarde|oi boa noite|ola boa noite|bom dia tudo bem|boa tarde tudo bem|boa noite tudo bem)$/.test(normalizeConversation(value));
 }
@@ -838,6 +862,8 @@ async function webhook(body: any) {
   let contact = (
     await rows("contacts", `?chat_id=eq.${encodeURIComponent(chat)}&select=*`)
   )[0];
+  const previouslyKnownContact = Boolean(contact);
+  const spokenInLastTenDays = wasRecentlyContacted(contact,previouslyKnownContact);
   const incomingDisplayName = cleanDisplayName(p.notifyName || p._data?.pushName || p._data?.notifyName || "");
   if (!contact)
     contact = await insert("contacts", {
@@ -856,12 +882,22 @@ async function webhook(body: any) {
     contact = refreshed || { ...contact, display_name: incomingDisplayName };
   }
   const message = String(p.body || "").slice(0, 3500);
+  const fromCampaign = hasCampaignOrigin(message,p);
+  const code = campaign(message);
   let lead = (await rows("leads", `?contact_id=eq.${contact.id}&select=*`))[0];
   // Restore a returning archived contact to the Kanban while retaining history.
   if (lead?.conversation_context?.kanban_archived_at && contact.classification !== "personal") {
     const {kanban_archived_at: _archiveMarker, ...activeContext} = lead.conversation_context;
     const reopened = await update("leads",lead.id,{conversation_context:activeContext});
     lead = reopened || {...lead,conversation_context:activeContext};
+  }
+  if (lead && fromCampaign && (lead.source !== "site" || (code && !lead.campaign_code))) {
+    const promoted = await update("leads",lead.id,{
+      source:"site",
+      campaign_code:code || lead.campaign_code || null,
+      stage:lead.stage === "leads" ? "leads_campaign" : lead.stage,
+    });
+    lead = promoted || {...lead,source:"site",campaign_code:code || lead.campaign_code,stage:lead.stage === "leads" ? "leads_campaign" : lead.stage};
   }
   let serviceResolvedNow = false;
   if (lead && incomingDisplayName && firstName(incomingDisplayName) && lead.display_name !== incomingDisplayName) {
@@ -907,12 +943,9 @@ async function webhook(body: any) {
     !lead &&
     contact.classification !== "personal" &&
     (!contact.manual_override || contact.classification === "lead") &&
-    (isLead(message) || isGreetingOnly(message) || isCuriosity(message))
+    Boolean(message.trim() || p.hasMedia || fromCampaign)
   ) {
-    const svc = classify(message),
-      c = campaign(message),
-      fromCampaign =
-        !!c || /vim pelo site|vim pelo an[uú]ncio|meta ads/i.test(message);
+    const svc = classify(message);
     lead = await insert("leads", {
       contact_id: contact.id,
       display_name: contact.display_name,
@@ -921,7 +954,7 @@ async function webhook(body: any) {
       issue: issue(message),
       price_cents: svc === "uber" ? 35000 : svc === "documento" ? 15000 : 0,
       source: fromCampaign ? "site" : "whatsapp",
-      campaign_code: c,
+      campaign_code: code,
       stage: fromCampaign ? "leads_campaign" : "leads",
       conversation_state: svc === "uber" ? "qualify_uber" : svc === "documento" ? "qualify_documento" : "discover_service",
       conversation_context: {},
@@ -950,6 +983,17 @@ async function webhook(body: any) {
     last_message_at: new Date().toISOString(),
   });
   if (contact.classification === "personal") return { classified: "personal" };
+  // No repeat generic welcome for a person contacted in the previous 10 days.
+  // Campaign leads and Uber-related conversations keep normal handling.
+  // Ongoing CRLV workflows also remain available for substantive replies and files.
+  const uberContext = classify(message) === "uber" || lead?.service === "uber";
+  const ongoingCrlv = lead?.service === "documento" &&
+    ["qualify_documento","offer_consent","collecting_documents","awaiting_review"].includes(
+      String(lead.conversation_state || "")
+    ) && !isGreetingOnly(message) && !isSmallTalkFollowup(message);
+  if (spokenInLastTenDays && !fromCampaign && !uberContext && !ongoingCrlv) {
+    return {lead_id:lead?.id || null,quiet_recent_contact:true};
+  }
   if (!lead) {
     if (contact.manual_override || !(await botOn(chat))) return { classified: "unknown" };
     const outboundHistory = await rows("messages", "?contact_id=eq." + encodeURIComponent(contact.id) + "&direction=eq.outgoing&select=action_key,body,received_at");
@@ -1024,7 +1068,8 @@ async function webhook(body: any) {
       let state = "discover_service";
       let opening = serviceDiscovery(lead, contact);
       let template = "sales_discovery";
-      if (lead.service === "desconhecido" && isGreetingOnly(message)) {
+      if (lead.service === "desconhecido" &&
+          (isGreetingOnly(message) || (!isCuriosity(message) && !isLead(message)))) {
         opening = salesGreeting(contact);
         template = "sales_greeting";
       } else if (lead.service !== "desconhecido") {

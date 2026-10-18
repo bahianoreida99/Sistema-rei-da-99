@@ -240,18 +240,13 @@ for(let i=0;i<10;i++) await caseRun(0,i,"mensagem neutra ou saudação #"+(i+1),
   const chat=digits(10,i),before=tables.leads.length,sentBefore=outbound.length;
   const samples=["Oi, bom dia","Tudo bem?","Obrigado","Bom final de semana","Quero falar com você","Olá","Enviei mensagem errada","Boa noite","Tudo ótimo","Como vai?"];
   const result=await post("unknown-"+i,chat,samples[i]);
-  const shouldGreet=[0,1,5,7,9].includes(i);
-  if(shouldGreet){
-    assert.equal(result.first,true);
-    assert.equal(tables.leads.length,before+1);
-    assert.equal(relatedLead(chat).service,"desconhecido");
-  } else {
-    assert.equal(result.classified,"unknown");
-    assert.equal(tables.leads.length,before);
-    assert.equal(relatedLead(chat),undefined);
-  }
-  assert.equal(outbound.length,sentBefore+(shouldGreet?1:0));
-  if(shouldGreet)assert.match(outbound.at(-1).text,/Oi! Tudo bem|Oi, .*Tudo bem/i);
+  assert.equal(result.first,true);
+  assert.equal(tables.leads.length,before+1);
+  assert.equal(relatedLead(chat).service,"desconhecido");
+  assert.equal(relatedLead(chat).stage,"leads");
+  assert.equal(outbound.length,sentBefore+1);
+  assert.match(outbound.at(-1).text,/Oi! Tudo bem|Oi, .*Tudo bem/i);
+  assert.match(outbound.at(-1).text,/Uber|CRLV/i);
 });
 for(let i=0;i<10;i++) await caseRun(1,i,"orgânico "+organicInput[i][1]+" #"+(i+1),async()=>{
   const chat=digits(11,i),[body,service]=organicInput[i],before=outbound.length;
