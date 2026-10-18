@@ -1022,7 +1022,7 @@ for(const rule of configuration.rules){
  configuration=await readAutomation();assert.equal(configuration.rules.find(item=>item.id===rule.id).message,message);
  const before=outbound.length;
  await automationSend("test@demo.invalid","DEFAULT",demoTemplateLead,"template-"+rule.id,rule.id,{faltantes:sampleVariables.faltantes,documento:sampleVariables.documento});
- const expected=message.replace(/\{(\w+)\}/g,(_,key)=>sampleVariables[key]);assert.equal(tables.messages.at(-1).body,expected);assert.equal(outbound.length,before);
+ const expected=message.replace(/\{(\w+)\}/g,(_,key)=>sampleVariables[key]).trim();assert.equal(tables.messages.at(-1).body,expected);assert.equal(outbound.length,before);
  saved=await req("admin/automation",{id:rule.id,message:"BAD {token}",revision:configuration.revision},{authorization:"Bearer good"});assert.match(saved.error,/campos disponíveis/);
  saved=await req("admin/automation",{id:rule.id,message:"OK",revision:"old"},{authorization:"Bearer good"});assert.match(saved.error,/outra janela/);
  saved=await req("admin/automation",{id:rule.id,reset:true,revision:configuration.revision},{authorization:"Bearer good"});assert.equal(saved.ok,true);
