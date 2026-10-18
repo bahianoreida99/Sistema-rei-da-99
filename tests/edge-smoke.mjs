@@ -134,6 +134,7 @@ async function fetchMock(input, init = {}) {
     if (b.chat_id && tables[table].some((x) => x.chat_id === b.chat_id))
       return fakeJson({ error: "unique" }, 409);
     b.id = b.id || "00000000-0000-4000-8000-" + String(++i).padStart(12, "0");
+    if(table==="documents" && !b.received_at)b.received_at=new Date().toISOString();
     tables[table].push(b);
     return fakeJson([b]);
   }
