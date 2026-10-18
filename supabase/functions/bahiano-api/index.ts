@@ -1069,7 +1069,7 @@ async function webhook(body: any) {
       serviceResolvedNow = true;
     }
   }
-  if (lead && lead.service === "desconhecido") {
+  if (lead && lead.service === "desconhecido" && !lead.conversation_context?.handoff_reason) {
     const resolved = classify(message);
     if (resolved !== "desconhecido") {
       const nextState = resolved === "uber" ? "qualify_uber" : "qualify_documento";
@@ -1140,6 +1140,8 @@ async function webhook(body: any) {
     return {lead_id:lead.id,manual_handoff:true,auto_reply:false};
   }
   if (lead && lead.service === "desconhecido" && !p.hasMedia) {
+    if (previouslyKnownContact && spokenInLastTenDays && !fromCampaign && !lead.welcome_sent_at && !lead.conversation_context?.generic_prompt_sent_at)
+      return {lead_id:lead.id,quiet_recent_contact:true};
     if (lead.conversation_context?.generic_prompt_sent_at || lead.welcome_sent_at) {
       const nextContext = {
         ...(lead.conversation_context || {}),
