@@ -468,9 +468,9 @@ function contextualReply(message:string,lead:any,messageId:string):ContextualAns
   ],messageId+"unlawful")};
   const price=lead.service==="documento"?"R$ 150,00":lead.service==="uber"?"R$ 350,00":null;
   const kinds:ReplyIntent[]=[];
-  if(isPriceObjection(message) || /(?:ta puxado|salgado|absurdo esse valor|muito dinheiro|achei salgado|carissimo|caro pra mim)/.test(text)) kinds.push("objection");
+  if(isPriceObjection(message) || /(?:ta puxado|salgado|absurdo esse valor|muito dinheiro|achei salgado|valor e alto|carissimo|caro pra mim)/.test(text)) kinds.push("objection");
   else if(asksPrice(message) || /(?:qnt|qto|qt|quanto voces cobram|quanto vcs cobram|quanto vc cobra|tem algum custo|quanto pra|quanto e|investimento|valores|precos|custos|fica em quanto|preco final)/.test(text)) kinds.push("price");
-  if(asksTiming(message) || /(?:hoje ainda|ate quando|pra ontem|urgente|urgencia|em minutos|em horas|tempo pra liberar|tempo de analise)/.test(text)) kinds.push("timing");
+  if(asksTiming(message) || /(?:hoje ainda|ate quando|pra ontem|urgente|urgencia|em minutos|em horas|em quantas horas|tempo pra liberar|tempo de analise)/.test(text)) kinds.push("timing");
   if(asksGuarantee(message) || /(?:garantem|certeza|se nao der certo|se der errado|vai funcionar|taxa de sucesso|certeza absoluta|garantido)/.test(text)) kinds.push("guarantee");
   if(asksDocuments(message) || /(?:precisa de rg|preciso de rg|lista de arquivos|papelada|copia da cnh|foto do crlv|precisa de selfie|manda quais|documentos sao necessarios|preciso da cnh|quero enviar documentos|documentos necessarios)/.test(text)) kinds.push("documents");
   if(/(?:sigilo|seguro|meus dados|vazamento|lgpd|usam meus dados|dados pessoais|documento e seguro|pedem senha|precisa da senha|pedem codigo|golpe|confiavel|privacidade)/.test(text)) kinds.push("security");
@@ -491,7 +491,7 @@ function contextualReply(message:string,lead:any,messageId:string):ContextualAns
         parts.push(variant([
           "Entendo que o valor pese. O atendimento inclui análise do seu caso, e você só paga após a entrega do serviço contratado.",
           "Compreendo a preocupação com o preço. Primeiro avaliamos a situação, e o pagamento é após a entrega, conforme combinado.",
-          "Entendo. Nosso foco é analisar seu caso com cuidado, sem cobrar antecipadamente pelo serviço contratado."
+          "Entendo. O valor cobre a análise do seu caso, e o pagamento só acontece após a entrega do serviço contratado."
         ]));break;
       case "price":
         parts.push(price?variant([
