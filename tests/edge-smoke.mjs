@@ -1014,7 +1014,7 @@ assert.notEqual(bothLead.stage,"producao","Other documents still required");
 ocrResult={text:"ruido pouco legivel",confidence:32,method:"image_ocr",regions:[]};
 await req("webhook/waha",bothEvent("rescan-file","","CNH digital recente.png"),hookHeaders);
 const rescanDoc=tables.documents.at(-1);
-assert.equal(rescanDoc.kind,"cnh_completa","Digital file label covers both intake sides, pending review");
+assert.equal(rescanDoc.kind,"cnh_sem_lado","Digital file name alone does not prove both sides");
 assert.equal(rescanDoc.identification_confidence,0,"Digital file name alone proves no contents");
 ocrResult={
  text:"CNH DIGITAL",confidence:85,method:"image_ocr",
