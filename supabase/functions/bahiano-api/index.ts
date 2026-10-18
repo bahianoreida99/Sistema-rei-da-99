@@ -258,7 +258,7 @@ function isSmallTalkFollowup(value: string): boolean {
   return /^(?:tudo bem|e voce|e vc|tudo bem e voce|tudo certo e voce|bem e voce|tudo otimo e voce|tudo otimo|tudo certo|estou bem|to bem|tambem|obrigado|obrigada)$/.test(normalizeConversation(value));
 }
 function isCuriosity(value: string): boolean {
-  return /(?:como funciona|me explica|quero saber mais|tenho interesse|mais informacoes|informacoes sobre|quero ajuda|preciso de ajuda|quero atendimento|quero entender|me fala sobre|pode me explicar|qual o valor|quanto custa|quanto fica|preco|valor do servico|orcamento|quero contratar|quero fazer|preciso resolver)/.test(normalizeConversation(value));
+  return /(?:como funciona|me explica|quero saber mais|tenho interesse|mais informacoes|informacoes sobre|preciso de informacoes|quero ajuda|preciso de ajuda|quero atendimento|quero entender|me fala sobre|pode me explicar|qual o valor|quanto custa|quanto fica|preco|valor do servico|orcamento|quero contratar|quero fazer|quero abrir|abrir uma conta|fazer uma conta|quero uma conta|quero conta|preciso resolver)/.test(normalizeConversation(value));
 }
 function asksDocuments(value: string): boolean {
   return /(?:quais documentos|documentos preciso|o que preciso enviar|o que devo enviar|o que mando|me passa a lista|lista de documentos|quais sao os documentos|pode mandar os documentos|envia os documentos|manda os documentos|documentacao necessaria|quais sao os arquivos)/.test(normalizeConversation(value));
@@ -817,12 +817,18 @@ async function webhook(body: any) {
     if (contact.manual_override || !(await botOn(chat))) return { classified: "unknown" };
     const outboundHistory = await rows("messages", "?contact_id=eq." + encodeURIComponent(contact.id) + "&direction=eq.outgoing&select=action_key,body,received_at");
     const hasGreeting = outboundHistory.some((item: any) => String(item.action_key || "").startsWith("sales:greeting:"));
+    const hasDiscovery = outboundHistory.some((item: any) => String(item.action_key || "").startsWith("sales:discovery:"));
+    const hasPrompt = hasGreeting || hasDiscovery;
     const pseudoLead = { id: null, contact_id: contact.id, display_name: contact.display_name, phone: contact.phone, service: "desconhecido", source: "whatsapp", price_cents: 0 };
     if (isGreetingOnly(message) && !hasGreeting) {
       await send(chat, salesGreeting(contact), pseudoLead, "sales:greeting:" + contact.id, "sales_greeting", { nome: firstName(contact.display_name) || "", saudacao: firstName(contact.display_name) ? ", " + firstName(contact.display_name) : "" });
       return { classified: "unknown", greeted: true };
     }
-    if (hasGreeting && (isSmallTalkFollowup(message) || /^(?:e voce|e vc|tudo bem por aqui)$/.test(normalizeConversation(message)))) {
+    if (hasPrompt && (isSimpleYes(message) || isNegative(message))) {
+      await send(chat, "Claro! 😊 Só me diz qual atendimento você procura: conta/cadastro Uber (R$ 350,00) ou serviço relacionado ao documento do carro/CRLV (R$ 150,00)?", pseudoLead, "sales:discovery:" + mid, "sales_discovery", { nome: firstName(contact.display_name) || "", saudacao: firstName(contact.display_name) ? ", " + firstName(contact.display_name) : "", valor_uber: "R$ 350,00", valor_crlv: "R$ 150,00" });
+      return { classified: "unknown", discovery: true };
+    }
+    if (hasPrompt && (isSmallTalkFollowup(message) || /^(?:e voce|e vc|tudo bem por aqui)$/.test(normalizeConversation(message)))) {
       await send(chat, "Tudo certo por aqui, obrigado por perguntar! 😊 Me conta: você precisa de ajuda com conta/cadastro Uber ou com o documento do carro (CRLV)?", pseudoLead, "sales:smalltalk:" + mid, "sales_smalltalk", { nome: firstName(contact.display_name) || "" });
       return { classified: "unknown", greeted: true };
     }
@@ -999,7 +1005,10 @@ async function webhook(body: any) {
     }
   } else if (lead.service === "desconhecido" || state === "discover_service") {
     await update("leads", lead.id, { conversation_state: "discover_service" });
-    await send(chat, serviceDiscovery(lead, contact), lead, "sales:discovery:" + mid, "sales_discovery", {
+    const discoveryText = (isSimpleYes(message) || isNegative(message))
+      ? "Claro! 😊 Só me diz qual atendimento você procura: conta/cadastro Uber (R$ 350,00) ou serviço relacionado ao documento do carro/CRLV (R$ 150,00)?"
+      : serviceDiscovery(lead, contact);
+    await send(chat, discoveryText, lead, "sales:discovery:" + mid, "sales_discovery", {
       nome: firstName(contact.display_name || lead.display_name) || "",
       saudacao: firstName(contact.display_name || lead.display_name) ? ", " + firstName(contact.display_name || lead.display_name) : "",
       valor_uber: "R$ 350,00",
