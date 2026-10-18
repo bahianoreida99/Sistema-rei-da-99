@@ -806,12 +806,14 @@ function identifyDocument(text: string, hint: string, confidence: number, method
       : "Tipo sugerido pela leitura do arquivo. A legibilidade e a validade exigem conferência.";
   }
   if (supplied === "cnh_completa" && ["outro","cnh_sem_lado"].includes(kind)) {
-    kind = "cnh_completa";
+    // A name or caption can suggest a digital CNH, but cannot prove both
+    // faces are present. Keep it pending review unless two visual regions agree.
+    kind = "cnh_sem_lado";
     method = "filename_or_caption";
-    note = "CNH digital declarada no nome ou legenda: frente e verso tratados como arquivo único para recebimento, com conferência humana obrigatória.";
+    note = "Nome ou legenda indicam CNH digital. A identificação dos dois lados depende da leitura visual ou revisão humana; não perguntar ao cliente a cada upload.";
   }
   if (kind === "outro" && supplied !== "outro" && !ambiguous && !/agendad|pendente|nao realizad|cancelad|falhou|saldo insuficiente|qr code|cobranca/.test(clean)) {
-    kind = supplied;
+    kind = supplied === "cnh_completa" ? "cnh_sem_lado" : supplied;
     method = "filename_or_caption";
     note = "Tipo indicado pelo nome do arquivo ou legenda; conteúdo ainda exige conferência.";
   }
