@@ -13,7 +13,8 @@
     "build:api": "node scripts/build-api.mjs",
     "start:api": "node backend/server.mjs",
     "typecheck:api": "tsc -p tsconfig.api.json",
-    "test:automation:100": "node tests/automation-100.mjs"
+    "test:automation:100": "node tests/automation-100.mjs",
+    "test:replies": "node tests/response-matrix.mjs"
   },
   "dependencies": {
     "@napi-rs/canvas": "^1.0.11",
