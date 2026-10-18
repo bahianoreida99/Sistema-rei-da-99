@@ -1,7 +1,22 @@
 import http from "node:http";
 import { readDocument } from "./document-reader.mjs";
 import { metaIntegration } from "./meta-integration.mjs";
+import { createCanvas, loadImage } from "@napi-rs/canvas";
 globalThis.BahianoReadDocument = readDocument;
+// WhatsApp NOWEB expects JPEG image messages; preserve the uploaded PNG/WebP
+// original in private Storage and convert only the outgoing attachment.
+globalThis.BahianoConvertToJpeg = async (source) => {
+  const image = await loadImage(Buffer.from(source));
+  const width = image.width, height = image.height;
+  if (!width || !height || width * height > 16_000_000)
+    throw Error("Imagem inválida ou muito grande para enviar");
+  const canvas = createCanvas(width, height);
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, width, height);
+  ctx.drawImage(image, 0, 0);
+  return new Uint8Array(canvas.toBuffer("image/jpeg"));
+};
 const meta = metaIntegration();
 globalThis.BahianoMetaRoute = meta.route;
 globalThis.BahianoPixelScript = meta.pixelScript;
