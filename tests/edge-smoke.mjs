@@ -30,7 +30,7 @@ const tables = {
   messages: [],
   documents: [],
   lead_activity: [],
-  business_settings: [{ key: "bot", value: { enabled: true } }],
+  business_settings: [{ key: "bot", value: { enabled: true } },{key:"automation_media",value:{intro_audio:{path:"intro_audio/test.mp3",mime_type:"audio/mpeg",enabled:true}}}],
 };
 let i = 0;
 const outbound = [];
