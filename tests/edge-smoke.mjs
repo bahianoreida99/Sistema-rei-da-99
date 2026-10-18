@@ -1358,7 +1358,13 @@ for(let cycle=0;cycle<10;cycle++){
   const beforeFiles=outbound.length;
   const sends=service==="uber"?["CNH digital.jpg","CRLV.jpg","Selfie.jpg"]:["CRLV.jpg"];
   for(let j=0;j<sends.length;j++){
-    ocrResult={text:"",confidence:0,method:"unavailable"};
+    ocrResult=sends[j].includes("CNH digital")
+      ? {text:"CARTEIRA NACIONAL DE HABILITACAO CNH DIGITAL",
+        confidence:92,method:"image_ocr",regions:[
+          {area:"image_half_1",confidence:91,text:"CARTEIRA NACIONAL DE HABILITACAO NOME FILIACAO DATA NASCIMENTO"},
+          {area:"image_half_2",confidence:92,text:"OBSERVACOES CATEGORIA HABILITACAO QR CODE CODIGO SEGURANCA"}
+        ]}
+      : {text:"",confidence:0,method:"unavailable",regions:[]};
     const r=await req("webhook/waha",incoming("file"+j,"",sends[j]),hookHeaders);
     assert.equal(r.batch_upload_saved,true);
     assert.equal(outbound.length,beforeFiles,"Do not respond to individual uploaded documents");
