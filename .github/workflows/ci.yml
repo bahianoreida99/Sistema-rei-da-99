@@ -19,4 +19,5 @@ jobs:
       - run: npm run build:api
       - run: npm test
       - run: npm run test:automation:100
+      - run: npm run test:replies
       - run: npm run test:documents
