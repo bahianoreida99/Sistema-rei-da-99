@@ -1160,11 +1160,11 @@ console.log("PASS: all 24 automation templates save, substitute variables, persi
 // Backend media integration: private Storage -> base64 -> WAHA voice/image -> dedupe.
 // These tests never connect to a real WhatsApp session.
 const mockLead={id:"media-test-lead",contact_id:"media-test-contact",source:"whatsapp",service:"uber"};
-tables.business_settings.push({key:"automation_media",value:{
+tables.business_settings.find(setting=>setting.key==="automation_media").value={
   intro_audio:{path:"intro_audio/intro.mp3",mime_type:"audio/mpeg",enabled:true},
   complete_audio:{path:"complete_audio/final.mp3",mime_type:"audio/mpeg",enabled:true},
   proof_1:{path:"proof_1/prova.png",mime_type:"image/png",enabled:true}
-}});
+};
 let mediaBefore=outbound.length;
 assert.equal(await automationSendMedia("test@c.us",mockLead,"intro_audio","test:intro"),true);
 assert.equal(outbound.length,mediaBefore+1);
