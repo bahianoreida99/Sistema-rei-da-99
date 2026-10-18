@@ -2125,7 +2125,8 @@ async function retryEvents() {
       console.error("webhook retry failed");
     }
   }
-  return { retried: events.length, succeeded };
+  const batch=await checkIdleBatches();
+  return { retried: events.length, succeeded, idle_batches_prompted:batch.asked };
 }
 async function whatsapp(req: Request, path: string) {
   if (!(await checkAdmin(req)))
