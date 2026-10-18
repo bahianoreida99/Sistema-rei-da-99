@@ -657,7 +657,7 @@ for (const service of ["uber", "documento"]) {
   await req("webhook/waha", incoming("reply", "Concordo. Meu email e teste@example.invalid"), hookHeaders);
   assert.equal(journey.stage, "conversando");assert.equal(journey.email, "teste@example.invalid");
   r=await req("admin/details",{lead_id:journey.id,email:"invalid-email"},{authorization:"Bearer good"});assert.match(r.error,/válido/);assert.equal(journey.email,"teste@example.invalid");
-  assert.match(outbound.at(-1).text,/Para continuar/);
+  assert.match(outbound.at(-1).text,/Envie, por favor|documentos/);
   ocrResult = { text: "Paisagem com arvores e flores sem documento", confidence: 94, method: "image_ocr" };
   await req("webhook/waha", incoming("unknown", "", true), hookHeaders);
   const unknown = tables.documents.at(-1);assert.equal(unknown.kind, "outro");assert.equal(unknown.status, "received");
