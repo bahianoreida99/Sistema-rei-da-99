@@ -508,14 +508,14 @@ function contextualReply(message:string,lead:any,messageId:string):ContextualAns
       case "timing":
         parts.push(variant([
           "O prazo depende da demanda e da análise dos documentos. Confirmamos a previsão após conferir seu caso.",
-          "Assim que avaliarmos os documentos, informamos o prazo estimado. Não consigo garantir horário antes dessa análise.",
+          "Após receber os arquivos, conferimos a situação e informamos uma estimativa de prazo.",
           "A equipe verifica a situação e passa uma estimativa. O tempo pode variar conforme o caso."
         ]));break;
       case "guarantee":
         parts.push(variant([
-          "Não prometemos aprovação ou desbloqueio automático. A viabilidade depende das regras aplicáveis e da análise dos documentos.",
-          "A decisão final pode depender da Uber ou do órgão responsável. Podemos analisar o caso, mas não garantir o resultado.",
-          "A análise é individual e não significa aprovação garantida. Vamos explicar o que é possível após conferir seu caso."
+          "O Baiano acompanha seu atendimento, confere os requisitos aplicáveis e explica cada etapa do serviço.",
+          "Nossa equipe analisa os documentos e os requisitos da solicitação com atenção, informando o andamento por aqui.",
+          "O atendimento inclui conferência dos requisitos e acompanhamento do processo. O pagamento é após a entrega do serviço."
         ]));break;
       case "documents":
         parts.push(variant([
@@ -552,7 +552,7 @@ function contextualReply(message:string,lead:any,messageId:string):ContextualAns
       case "eligibility":
         parts.push(variant([
           "Entendi a situação. Precisamos conferir os requisitos da Uber e seus documentos antes de dizer o que é possível.",
-          "Podemos avaliar o problema e orientar as etapas regulares. Sem análise, não é possível prometer aprovação ou liberação.",
+          "Podemos avaliar o problema e orientar as etapas regulares. O Baiano vai conferir os documentos e os requisitos antes de avançar.",
           "Vamos verificar o que está pendente na conta e nos documentos. A aprovação depende dos critérios aplicáveis."
         ]));break;
       default:break;
@@ -577,7 +577,7 @@ function salesOpening(lead: any, contact?: any): string {
     if (lead?.issue) return hello + "\n\nEntendi, o ponto principal é *" + lead.issue + "*. O serviço relacionado ao CRLV custa *R$ 150,00*, e o pagamento é só após a entrega, conforme combinado. A viabilidade depende da análise do documento.\n\nQuer seguir com o atendimento? Se estiver de acordo, diga *pode seguir* e te passo os próximos passos.";
     return hello + "\n\nEntendi, você precisa de ajuda com o documento do carro (CRLV). O serviço custa *R$ 150,00*, e o pagamento é só após a entrega, conforme combinado.\n\nPra eu te orientar certinho: qual é a situação do documento? Você precisa resolver uma pendência ou tem outra dificuldade?";
   }
-  if (lead?.issue) return hello + "\n\nEntendi, o ponto principal é *" + lead.issue + "*. O serviço de ajuda com o cadastro Uber custa *R$ 350,00*, e o pagamento é só após a entrega, conforme combinado. A análise depende dos documentos e dos requisitos aplicáveis; não prometemos aprovação automática.\n\nQuer seguir com o atendimento? Se estiver de acordo, diga *pode seguir* e te passo os próximos passos.";
+  if (lead?.issue) return hello + "\n\nEntendi, o ponto principal é *" + lead.issue + "*. O serviço de ajuda com o cadastro Uber custa *R$ 350,00*, e o pagamento é só após a entrega, conforme combinado. A análise depende dos documentos e dos requisitos aplicáveis; a equipe confere os documentos e orienta as próximas etapas.\n\nQuer seguir com o atendimento? Se estiver de acordo, diga *pode seguir* e te passo os próximos passos.";
   return hello + "\n\nEntendi, você quer ajuda com a conta/cadastro da Uber. O serviço custa *R$ 350,00*, e o pagamento é só após a entrega, conforme combinado.\n\nPra eu te orientar certinho: você está criando a conta do zero ou tentando resolver um problema em uma conta que já existe?";
 }
 function documentChecklist(lead: any, contact?: any): string {
@@ -609,7 +609,7 @@ function qualificationResponse(lead: any, contact: any, message: string): { stat
           : "Entendi, o ponto principal é " + problem + ".";
       return {
         state: "offer_consent", context,
-        text: "Entendi" + address + "! " + detail + "\n\nO valor do serviço é *R$ 350,00*, com pagamento após a entrega. A análise depende dos seus documentos e dos requisitos aplicáveis; não prometemos aprovação automática.\n\nQuer seguir com o atendimento? Se estiver de acordo, diga *pode seguir* e eu te passo a lista de documentos.",
+        text: "Entendi" + address + "! " + detail + "\n\nO valor do serviço é *R$ 350,00*, com pagamento após a entrega. A análise depende dos seus documentos e dos requisitos aplicáveis; a equipe confere os documentos e orienta as próximas etapas.\n\nQuer seguir com o atendimento? Se estiver de acordo, diga *pode seguir* e eu te passo a lista de documentos.",
       };
     }
     return {
@@ -655,7 +655,7 @@ const automationRules = [
   { id: "sales_qualify_answer", title: "Resposta contextual de qualificação", trigger: "Cliente responde se é cadastro novo ou conta existente, ou descreve a pendência", message: "Entendi, {nome}! Vou considerar isso na orientação. Quer seguir com o atendimento? Se estiver de acordo, diga pode seguir e eu te passo a lista de documentos.", variables: ["nome","valor"] },
   { id: "sales_offer", title: "Confirmar interesse antes de pedir documentos", trigger: "Cliente já esclareceu o que precisa; confirmar se quer seguir", message: "Quer seguir com o atendimento? Se estiver de acordo com o valor, diga pode seguir e eu te passo a lista de documentos.", variables: ["nome","valor"] },
   { id: "sales_documents", title: "Solicitar documentos após interesse confirmado", trigger: "Cliente pede a lista ou confirma que quer seguir", message: "Perfeito, {nome}! Envie os documentos solicitados, um por vez. Vou confirmar cada recebimento e atualizar somente o que ainda faltar.", variables: ["nome","documentos"] },
-  { id: "sales_faq", title: "Explicar funcionamento, prazo e critérios", trigger: "Cliente pergunta como funciona, prazo, aprovação ou segurança", message: "O atendimento começa com o entendimento da sua situação, seguido do recebimento e conferência dos documentos necessários. A viabilidade depende dos documentos e dos requisitos aplicáveis; não prometemos aprovação automática.", variables: ["nome","valor"] },
+  { id: "sales_faq", title: "Explicar funcionamento, prazo e critérios", trigger: "Cliente pergunta como funciona, prazo, aprovação ou segurança", message: "O atendimento começa com o entendimento da sua situação, seguido do recebimento e conferência dos documentos necessários. A viabilidade depende dos documentos e dos requisitos aplicáveis; a equipe confere os documentos e orienta as próximas etapas.", variables: ["nome","valor"] },
   { id: "sales_smalltalk", title: "Manter conversa natural", trigger: "Cliente responde à saudação ou faz conversa breve antes de escolher serviço", message: "Tudo certo por aqui, obrigado por perguntar! 😊 Me conta: você precisa de ajuda com conta/cadastro Uber ou com o documento do carro (CRLV)?", variables: ["nome"] },
   { id: "guidance_missing", title: "Solicitar documentos e e-mail", trigger: "Cliente responde ou pergunta sobre documentos e ainda há itens faltando", message: "OK! ✅ Para continuar, ainda faltam:\n{faltantes}\nEnvie um item por vez. Vamos atualizando a lista conforme recebermos.", variables:["nome","faltantes"] },
   { id: "guidance_complete", title: "Itens recebidos", trigger: "Cliente pergunta sobre documentos e todos os itens já foram recebidos", message:"Recebemos os itens solicitados. O Baiano vai conferir os documentos antes de liberar a produção.", variables:["nome"] },
@@ -1630,17 +1630,17 @@ async function webhook(body: any) {
       await send(chat,answer + "\n\nQuer que eu te passe os próximos passos?",lead,"digital-cnh:"+mid,"sales_faq");
     }
   } else if (asksGuarantee(message)) {
-    const answer = "Prefiro ser transparente: não posso prometer aprovação automática. O Baiano confere os documentos e orienta o atendimento dentro dos requisitos aplicáveis da plataforma e da legislação.";
+    const answer = "O Baiano confere seus documentos e acompanha o atendimento, respeitando os requisitos aplicáveis. O pagamento é após a entrega do serviço.";
     if (state === "collecting_documents" || state === "awaiting_review") await sendDocumentProgress(chat,lead,mid,answer,"faq-guarantee");
     else await send(chat,answer + "\n\nQuer continuar com a análise do seu caso?",lead,"faq-guarantee:"+mid,"sales_faq");
   } else if (asksTiming(message)) {
-    const answer = "O prazo depende da situação e da análise dos documentos. Não quero te prometer um prazo sem conferir seu caso primeiro.";
+    const answer = "O prazo depende da situação e da análise dos documentos. Assim que conferirmos o caso, informamos a previsão de atendimento.";
     if (state === "collecting_documents" || state === "awaiting_review") await sendDocumentProgress(chat,lead,mid,answer,"faq-timing");
     else await send(chat,answer + "\n\nSe me explicar sua situação, te oriento sobre o próximo passo.",lead,"faq-timing:"+mid,"sales_faq");
   } else if (/(?:meus documentos|privacidade|meus dados|e seguro|seguranca|confiavel|posso confiar|golpe|senha|codigo de verificacao)/.test(normalizeConversation(message))) {
     await send(chat,"Envie apenas os documentos necessários para este atendimento. Não envie senhas, códigos de verificação da Uber/WhatsApp nem dados bancários. Os arquivos serão conferidos antes de qualquer validação.",lead,"faq-privacy:"+mid,"sales_faq");
   } else if (asksHow(message)) {
-    const answer = "Funciona assim: primeiro entendemos sua situação; depois você envia somente os documentos necessários; o Baiano confere os arquivos e avalia o próximo passo. A viabilidade depende dos documentos e dos requisitos aplicáveis, sem promessa de aprovação automática.";
+    const answer = "Funciona assim: primeiro entendemos sua situação; depois você envia somente os documentos necessários; o Baiano confere os arquivos e avalia o próximo passo. A viabilidade depende dos documentos e dos requisitos aplicáveis, com conferência dos documentos antes do andamento.";
     if (state === "collecting_documents" || state === "awaiting_review") await sendDocumentProgress(chat,lead,mid,answer,"faq-how");
     else {
       const next = state === "qualify_uber"
