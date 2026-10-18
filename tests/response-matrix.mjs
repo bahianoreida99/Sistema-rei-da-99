@@ -59,6 +59,7 @@ const leadStates=[
 ];
 const prefixes=["","Oi, ","Olá, ","Por favor, ","Me diz: ","Então, ","Ei, ","Pode explicar: "];
 let checked=0,recognized=0;const byKind={};const variants={};
+const failures=new Set();
 for(const [kind,phrases] of Object.entries(samples)){
   byKind[kind]={total:0,recognized:0};
   const unique=new Set();
@@ -67,8 +68,9 @@ for(const [kind,phrases] of Object.entries(samples)){
       for(let j=0;j<24;j++){
         const text=prefixes[j%prefixes.length]+phrase;
         const lead=leadStates[state];
-        const a=contextualReply(text,lead,"matrix-"+kind+"-"+state+"-"+j);
         checked++;byKind[kind].total++;
+        try {
+        const a=contextualReply(text,lead,"matrix-"+kind+"-"+state+"-"+j);
         assert.ok(a?.text,"No reply for "+kind+"/"+text);
         recognized++;byKind[kind].recognized++;
         assert.ok(a.kinds.includes(kind) || (kind==="eligibility" && a.kinds.includes("unlawful")),
@@ -80,11 +82,12 @@ for(const [kind,phrases] of Object.entries(samples)){
           assert.match(a.text,new RegExp("R\\$ "+(lead.service==="uber"?"350":"150")+",00"));
         }
         unique.add(a.text);
+        }catch(error){failures.add(kind+" / "+phrase+": "+String(error.message));}
       }
     }
   }
   variants[kind]=unique.size;
-  if(kind!=="support") assert.ok(unique.size>=3,kind+" needs at least three distinct responses");
+  if(kind!=="support" && unique.size<3) failures.add(kind+" needs at least three distinct responses");
 }
 for(let i=0;i<1000;i++){
   const combo=[
@@ -111,6 +114,7 @@ for(const msg of ["Oi","Opa!","sim","não","pode seguir","vou enviar os document
    assert.equal(ans,null,"Control flow preserved for "+msg);
  checked++;
 }
+if(failures.size) throw Error("REPLY_MATRIX_FAILURES ("+failures.size+"):\n"+[...failures].slice(0,80).join("\n"));
 console.log("REPLY_MATRIX_REPORT "+JSON.stringify({
  totalCases:checked,recognized,uniqueAnswersByIntent:variants,
  intentCoverage:byKind,states:leadStates.length,
