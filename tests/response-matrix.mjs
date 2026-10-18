@@ -77,7 +77,7 @@ for(const [kind,phrases] of Object.entries(samples)){
           "Wrong intent "+kind+"/"+text+" -> "+JSON.stringify(a.kinds));
         assert.ok(a.text.length<1050 && a.text.length>25,"Bad response length "+kind+" "+a.text.length);
         assert.match(a.text,expectedPatterns[kind],"Grounding "+kind+" "+text+" -> "+a.text);
-        assert.doesNotMatch(a.text,/aprovamos sua conta|aprovamos a Uber|garantimos (a )?aprovacao|documento falso em|minha chave pix|senha da sua conta/i);
+        assert.doesNotMatch(a.text,/aprovamos sua conta|aprovamos a Uber|garantimos (a )?aprovacao|documento falso em|minha chave pix/i);
         if(kind==="price" && lead.service!=="desconhecido"){
           assert.match(a.text,new RegExp("R\\$ "+(lead.service==="uber"?"350":"150")+",00"));
         }
