@@ -153,7 +153,7 @@ async function send(
     const settings = (await rows("business_settings", "?key=eq.automation_messages&select=value"))[0]?.value || {};
     const template = settings[templateId];
     if (typeof template === "string" && template.trim()) {
-      const values = { nome: String(lead.display_name || "cliente"), valor: lead.service === "documento" ? "R$ 150,00" : "R$ 350,00", documentos: requiredFor(lead).map(kind => "• " + docs[kind]).join("\n"), ...variables };
+      const values = { nome: firstName(lead.display_name) || "cliente", valor: lead.service === "documento" ? "R$ 150,00" : "R$ 350,00", documentos: requiredFor(lead).map(kind => "• " + docs[kind]).join("\n"), ...variables };
       message = template.replace(/\{(\w+)\}/g, (match: string, key: string) => values[key as keyof typeof values] ?? match);
     }
   }
@@ -230,6 +230,135 @@ const issue = (s: string) =>
               : null;
 const campaign = (s: string) =>
   s.match(/\b(?:REF|CAMP|CAMPANHA)[:#\s-]*([a-z0-9_-]{3,40})\b/i)?.[1] || null;
+
+function normalizeConversation(value: unknown): string {
+  return String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase().replace(/[^\p{L}\p{N}@._+-]+/gu, " ").replace(/\s+/g, " ").trim();
+}
+function cleanDisplayName(value: unknown): string {
+  return String(value || "").replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim().slice(0, 90);
+}
+function firstName(value: unknown): string {
+  const raw = cleanDisplayName(value);
+  if (!raw || /@|^\+?\d[\d\s()+-]*$/.test(raw)) return "";
+  const norm = normalizeConversation(raw);
+  const generic = new Set(["whatsapp", "whatsapp user", "user", "unknown", "unknown contact", "sem nome", "sem identificacao", "teste", "teste automatizado", "teste anonimo", "contato", "cliente", "eu", "eu pessoal", "atendimento"]);
+  if (generic.has(norm)) return "";
+  const token = raw.replace(/[^\p{L}\p{M}'’.-]+/gu, " ").trim().split(/\s+/)[0]?.replace(/[.]+$/,"") || "";
+  if (!/^\p{L}[\p{L}\p{M}'’-]{0,23}$/u.test(token) || generic.has(normalizeConversation(token))) return "";
+  return token.charAt(0).toLocaleUpperCase("pt-BR") + token.slice(1).toLocaleLowerCase("pt-BR");
+}
+function helloLine(name: string): string {
+  return name ? "Oi, " + name + "! Tudo bem? 😊" : "Oi! Tudo bem? 😊";
+}
+function isGreetingOnly(value: string): boolean {
+  return /^(?:oi+|ola+|opa|e ai|fala|bom dia|boa tarde|boa noite|tudo bem|como vai|oi tudo bem|ola tudo bem|bom dia tudo bem|boa tarde tudo bem|boa noite tudo bem)$/.test(normalizeConversation(value));
+}
+function isSmallTalkFollowup(value: string): boolean {
+  return /^(?:e voce|e vc|tudo bem e voce|tudo certo e voce|bem e voce|tudo otimo e voce|tudo otimo|tudo certo|estou bem|to bem|tambem|obrigado|obrigada)$/.test(normalizeConversation(value));
+}
+function isCuriosity(value: string): boolean {
+  return /(?:como funciona|me explica|quero saber mais|tenho interesse|mais informacoes|informacoes sobre|quero ajuda|preciso de ajuda|quero atendimento|quero entender|me fala sobre|pode me explicar|qual o valor|quanto custa|quanto fica|preco|valor do servico|orcamento|quero contratar|quero fazer|preciso resolver)/.test(normalizeConversation(value));
+}
+function asksDocuments(value: string): boolean {
+  return /(?:quais documentos|documentos preciso|o que preciso enviar|o que devo enviar|o que mando|me passa a lista|lista de documentos|quais sao os documentos|pode mandar os documentos|envia os documentos|manda os documentos|documentacao necessaria|quais sao os arquivos)/.test(normalizeConversation(value));
+}
+function asksPrice(value: string): boolean {
+  return /(?:quanto custa|quanto fica|qual o valor|qual valor|preco|valor|custa quanto|forma de pagamento|como paga|pagamento|pix|parcel|mais barato|desconto)/.test(normalizeConversation(value));
+}
+function asksHow(value: string): boolean {
+  return /(?:como funciona|como e o processo|me explica|o que esta incluso|o que inclui|como voces fazem|como e feito|como comeca|quais sao os passos)/.test(normalizeConversation(value));
+}
+function asksTiming(value: string): boolean {
+  return /(?:quanto tempo|qual o prazo|prazo|demora|quando fica pronto|fica pronto hoje|e rapido|em quanto tempo)/.test(normalizeConversation(value));
+}
+function asksGuarantee(value: string): boolean {
+  return /(?:garante|garantia|garantido|aprova|aprovacao|certeza que|vai dar certo|promete)/.test(normalizeConversation(value));
+}
+function asksDigitalCnh(value: string): boolean {
+  return /(?:cnh digital|digital pode|pode ser digital|tenho digital|arquivo unico|frente e verso no mesmo arquivo|os dois lados no mesmo arquivo)/.test(normalizeConversation(value));
+}
+function isSimpleYes(value: string): boolean {
+  return /^(?:sim|s|ok|okay|pode|pode ser|claro|beleza|fechado|certo|isso|bora|quero|vamos|concordo|de acordo|manda|pode mandar|ta bom|show|blz|perfeito|positivo)$/.test(normalizeConversation(value));
+}
+function isExplicitConsent(value: string): boolean {
+  return /(?:quero seguir|pode seguir|pode continuar|vamos continuar|quero contratar|quero prosseguir|pode prosseguir|estou de acordo|concordo com o valor|pode mandar os documentos|pode enviar os documentos|manda a lista|envia a lista|quero iniciar|pode iniciar|quero dar andamento|vamos em frente|pode tocar)/.test(normalizeConversation(value));
+}
+function isNegative(value: string): boolean {
+  return /^(?:nao|agora nao|nao quero|depois|vou pensar|mais tarde|so estava perguntando|so queria saber)$/.test(normalizeConversation(value));
+}
+function accountAnswer(value: string): "new" | "existing" | null {
+  const s = normalizeConversation(value);
+  if (/(?:do zero|conta nova|nova conta|criar do zero|primeira vez|ainda nao tenho|nao tenho conta|nunca tive|fazer cadastro novo|cadastro novo)/.test(s)) return "new";
+  if (/(?:ja tenho|conta existente|minha conta|bloquead|suspens|nao consigo entrar|login|recuper|desativad|foi recusad|ja estou cadastrad|conta parada)/.test(s)) return "existing";
+  return null;
+}
+function serviceDiscovery(lead: any, contact?: any): string {
+  const name = firstName(contact?.display_name || lead?.display_name);
+  return helloLine(name) + "\n\nClaro, te explico! 😊 Hoje atendemos duas situações:\n• Ajuda com conta/cadastro Uber — *R$ 350,00*\n• Serviço relacionado ao documento do carro (CRLV) — *R$ 150,00*\n\nQual delas você precisa resolver?";
+}
+function salesGreeting(contact: any): string {
+  return helloLine(firstName(contact?.display_name)) + "\n\nSeja bem-vindo ao Baiano da 99! 😊 Me conta: você quer ajuda com a conta/cadastro da Uber ou com o documento do carro (CRLV)?";
+}
+function salesOpening(lead: any, contact?: any): string {
+  const name = firstName(contact?.display_name || lead?.display_name);
+  const hello = helloLine(name);
+  if (lead?.service === "documento") {
+    return hello + "\n\nEntendi, você precisa de ajuda com o documento do carro (CRLV). O serviço custa *R$ 150,00*, e o pagamento é só após a entrega, conforme combinado.\n\nPra eu te orientar certinho: qual é a situação do documento? Você precisa resolver uma pendência ou tem outra dificuldade?";
+  }
+  return hello + "\n\nEntendi, você quer ajuda com a conta/cadastro da Uber. O serviço custa *R$ 350,00*, e o pagamento é só após a entrega, conforme combinado.\n\nPra eu te orientar certinho: você está criando a conta do zero ou tentando resolver um problema em uma conta que já existe?";
+}
+function documentChecklist(lead: any, contact?: any): string {
+  const name = firstName(contact?.display_name || lead?.display_name);
+  const greeting = name ? "Perfeito, " + name + "!" : "Perfeito!";
+  const list = lead?.service === "documento"
+    ? "📄 Documento do carro (CRLV)"
+    : "📄 CNH — frente e verso (a CNH digital pode vir em um único arquivo)\n📄 Documento do carro (CRLV)\n📄 Selfie com fundo branco";
+  const phone = lead?.phone
+    ? "📱 Telefone para contato: usamos este número do WhatsApp; avise se preferir outro."
+    : "📱 Número de telefone para contato";
+  return greeting + " Vamos começar pela análise do seu atendimento. 😊\n\nEnvie, por favor:\n" + list + "\n" + phone + "\n📧 E-mail\n\nPode mandar um item por vez. Vou confirmar cada recebimento e atualizar somente o que ainda faltar. Os documentos serão conferidos antes de qualquer validação.";
+}
+function qualificationResponse(lead: any, contact: any, message: string): { state: string; context: Record<string, unknown>; text: string } {
+  const name = firstName(contact?.display_name || lead?.display_name);
+  const address = name ? ", " + name : "";
+  const s = normalizeConversation(message);
+  const context = { ...(lead?.conversation_context || {}), last_customer_message: cleanDisplayName(message).slice(0, 240) };
+  if (lead?.service === "uber") {
+    const account = accountAnswer(message);
+    const problem = issue(message);
+    if (account || problem) {
+      context.account_type = account || context.account_type || "not_specified";
+      if (problem) context.reported_issue = problem;
+      const detail = account === "new"
+        ? "Entendi, você quer começar um cadastro do zero."
+        : account === "existing"
+          ? "Entendi, você precisa resolver uma situação de uma conta que já existe."
+          : "Entendi, o ponto principal é " + problem + ".";
+      return {
+        state: "offer_consent", context,
+        text: "Entendi" + address + "! " + detail + "\n\nO valor do serviço é *R$ 350,00*, com pagamento após a entrega. A análise depende dos seus documentos e dos requisitos aplicáveis; não prometemos aprovação automática.\n\nQuer seguir com o atendimento? Se estiver de acordo, diga *pode seguir* e eu te passo a lista de documentos.",
+      };
+    }
+    return {
+      state: "qualify_uber", context,
+      text: "Claro" + address + "! 😊 Só preciso entender uma coisa para te orientar corretamente: você está criando a conta Uber do zero ou tentando resolver um problema em uma conta existente?",
+    };
+  }
+  const vague = /^(?:sim|nao|nao sei|ok|okay|certo|beleza|tudo bem|oi|ola|bom dia|boa tarde|boa noite|quero|pode|me explica|como funciona)$/.test(s);
+  if (!vague && s.length >= 3) {
+    context.document_issue = cleanDisplayName(message).slice(0, 240);
+    return {
+      state: "offer_consent", context,
+      text: "Entendi" + address + "! 😊 Vou considerar essa informação na análise do serviço relacionado ao CRLV. O valor é *R$ 150,00*, e o pagamento é só após a entrega.\n\nQuer seguir? Se estiver de acordo, diga *pode seguir* e te passo o que precisamos receber.",
+    };
+  }
+  return {
+    state: "qualify_documento", context,
+    text: "Claro" + address + "! 😊 Para eu te orientar certinho, me conta qual é a pendência no documento do carro (CRLV).",
+  };
+}
+
 function initial(lead: any) {
   const val = lead.service === "documento" ? "R$ 150,00" : "R$ 350,00";
   const status =
@@ -247,8 +376,15 @@ function initial(lead: any) {
     )}\n📱 Número de telefone\n📧 E-mail\n\n*Se quiser fazer o serviço agora e estiver de acordo com o valor, envie os documentos solicitados.*\n\nVamos acompanhar seu atendimento até a conclusão!`;
 }
 const automationRules = [
-  { id: "welcome_uber", title: "Boas-vindas · conta Uber", trigger: "Primeiro contato identificado como cadastro Uber", message: initial({service:"uber"}).replace("R$ 350,00","{valor}"), variables: ["nome","valor"] },
-  { id: "welcome_documento", title: "Boas-vindas · documento do carro", trigger: "Primeiro contato identificado como documento do carro", message: initial({service:"documento"}).replace("R$ 150,00","{valor}"), variables: ["nome","valor"] },
+  { id: "welcome_uber", title: "Abertura conversacional · conta Uber", trigger: "Primeiro contato identificado como cadastro Uber; pergunta se é conta nova ou existente", message: salesOpening({service:"uber"}).replace("R$ 350,00","{valor}"), variables: ["nome","valor"] },
+  { id: "welcome_documento", title: "Abertura conversacional · documento do carro", trigger: "Primeiro contato identificado como CRLV; pergunta qual é a pendência", message: salesOpening({service:"documento"}).replace("R$ 150,00","{valor}"), variables: ["nome","valor"] },
+  { id: "sales_greeting", title: "Saudação natural", trigger: "Cliente inicia com oi, olá ou bom dia sem indicar o serviço", message: "Oi, {nome}! Tudo bem? 😊 Seja bem-vindo ao Baiano da 99! Me conta: você quer ajuda com a conta/cadastro da Uber ou com o documento do carro (CRLV)?", variables: ["nome"] },
+  { id: "sales_discovery", title: "Descobrir serviço e qualificar interesse", trigger: "Cliente pede informações ou pergunta preço sem dizer qual serviço", message: "Hoje atendemos duas situações: conta/cadastro Uber ({valor_uber}) e serviço relacionado ao CRLV ({valor_crlv}). Qual delas você precisa resolver?", variables: ["nome","valor_uber","valor_crlv"] },
+  { id: "sales_qualify_answer", title: "Resposta contextual de qualificação", trigger: "Cliente responde se é cadastro novo ou conta existente, ou descreve a pendência", message: "Entendi, {nome}! Vou considerar isso na orientação. Quer seguir com o atendimento? Se estiver de acordo, diga pode seguir e eu te passo a lista de documentos.", variables: ["nome","valor"] },
+  { id: "sales_offer", title: "Confirmar interesse antes de pedir documentos", trigger: "Cliente já esclareceu o que precisa; confirmar se quer seguir", message: "Quer seguir com o atendimento? Se estiver de acordo com o valor, diga pode seguir e eu te passo a lista de documentos.", variables: ["nome","valor"] },
+  { id: "sales_documents", title: "Solicitar documentos após interesse confirmado", trigger: "Cliente pede a lista ou confirma que quer seguir", message: "Perfeito, {nome}! Envie os documentos solicitados, um por vez. Vou confirmar cada recebimento e atualizar somente o que ainda faltar.", variables: ["nome","documentos"] },
+  { id: "sales_faq", title: "Explicar funcionamento, prazo e critérios", trigger: "Cliente pergunta como funciona, prazo, aprovação ou segurança", message: "O atendimento começa com o entendimento da sua situação, seguido do recebimento e conferência dos documentos necessários. A viabilidade depende dos documentos e dos requisitos aplicáveis; não prometemos aprovação automática.", variables: ["nome","valor"] },
+  { id: "sales_smalltalk", title: "Manter conversa natural", trigger: "Cliente responde à saudação ou faz conversa breve antes de escolher serviço", message: "Tudo certo por aqui, obrigado por perguntar! 😊 Me conta: você precisa de ajuda com conta/cadastro Uber ou com o documento do carro (CRLV)?", variables: ["nome"] },
   { id: "guidance_missing", title: "Solicitar documentos e e-mail", trigger: "Cliente responde ou pergunta sobre documentos e ainda há itens faltando", message: "OK! ✅ Para continuar, ainda faltam:\n{faltantes}\nEnvie um item por vez. Vamos atualizando a lista conforme recebermos.", variables:["nome","faltantes"] },
   { id: "guidance_complete", title: "Itens recebidos", trigger: "Cliente pergunta sobre documentos e todos os itens já foram recebidos", message:"Recebemos os itens solicitados. O Baiano vai conferir os documentos antes de liberar a produção.", variables:["nome"] },
   { id: "price", title: "Informar preço", trigger: "Cliente pergunta valor, preço, quanto custa", message:"O valor do serviço é {valor}. O pagamento acontece após a entrega do serviço contratado. O Baiano vai analisar os documentos antes de confirmar a viabilidade.", variables:["nome","valor"] },
