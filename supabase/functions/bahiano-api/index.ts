@@ -1406,6 +1406,33 @@ async function webhook(body: any) {
     await send(chat,receivedProof.length ? "O comprovante está aguardando conferência. O Baiano vai confirmar o recebimento; o pagamento continua pendente até essa confirmação." : "Recebemos sua informação sobre o pagamento. Envie o comprovante legível para o Baiano conferir. O pagamento continua pendente até a confirmação.",lead,"payment-report:"+mid,receivedProof.length ? "payment_pending" : "payment_missing");
     return {lead_id:lead.id,stage:lead.stage,payment_reported:true};
   }
+  // Batch mode: media are stored silently. Five minutes after the last
+  // upload/activity, /internal/retry asks once whether the client is done.
+  const inBatch = lead.service !== "desconhecido" &&
+    ["collecting_documents","awaiting_review"].includes(String(lead.conversation_state||"")) &&
+    Boolean(lead.conversation_context?.intro_onboarding_started_at) &&
+    !lead.automation_paused && await botOn(chat);
+  if(inBatch && p.hasMedia && uploaded && uploaded.kind!=="comprovante") {
+    const next=refreshedBatch(lead.conversation_context,now);
+    await update("leads",lead.id,{conversation_state:"collecting_documents",conversation_context:next});
+    return {lead_id:lead.id,batch_upload_saved:true,recognized_type:uploaded.kind,auto_reply:false};
+  }
+  if(inBatch && !p.hasMedia && lead.conversation_context?.batch_question_sent_at &&
+    (batchYes(message) || batchNo(message))) {
+    if(batchYes(message)) return {lead_id:lead.id,...await completeDocumentBatch(chat,lead,mid,now)};
+    const next={...lead.conversation_context,batch_question_sent_at:null,batch_last_activity_at:now,
+      batch_revision:Number(lead.conversation_context?.batch_revision||0)+1};
+    await update("leads",lead.id,{conversation_context:next});
+    await send(chat,"Tudo bem! Pode continuar enviando os arquivos. Vou aguardar.",lead,"batch:continue:"+mid);
+    return {lead_id:lead.id,batch_continues:true};
+  }
+  if(inBatch && !p.hasMedia && lead.conversation_context?.batch_has_uploads) {
+    // Information such as an email or an answer about a digital CNH counts as
+    // activity; the bot does not send another checklist while files arrive.
+    await update("leads",lead.id,{conversation_context:refreshedBatch(lead.conversation_context,now)});
+    return {lead_id:lead.id,batch_waiting:true,auto_reply:false};
+  }
+
   if (!lead.welcome_sent_at) {
     if (
       !lead.automation_paused &&
