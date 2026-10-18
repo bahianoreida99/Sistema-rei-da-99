@@ -757,7 +757,7 @@ assert.equal(
 );
 failSend = false;
 r = await req("webhook/waha", recovery, hookHeaders);
-assert.equal(r.first, true);
+assert.equal(r.started_documents, true);
 assert.equal(
   tables.messages.filter((m) => m.waha_id === "recover-1").length,
   1,
