@@ -378,6 +378,11 @@ function hasCampaignOrigin(message: string, payload: any): boolean {
   ));
   return fromMessage || fromReferral;
 }
+function resetTestSuffix(lead:any):string {
+  const reset = lead?.conversation_context?.test_reset_at;
+  return typeof reset==="string" && Number.isFinite(Date.parse(reset))
+    ? ":test-"+Date.parse(reset) : "";
+}
 function wasRecentlyContacted(contact: any, existed: boolean): boolean {
   const previous = existed ? Date.parse(String(contact?.last_message_at || "")) : NaN;
   return Number.isFinite(previous) && previous <= Date.now() &&
@@ -840,7 +845,7 @@ async function sendDocumentProgress(
     missing.length ? "guidance_missing" : "guidance_complete",
     { faltantes: missing.join("\n") });
   if (!missing.length) {
-    const audioSent = await sendMedia(chat,lead,"complete_audio","media:complete:"+lead.id);
+    const audioSent = await sendMedia(chat,lead,"complete_audio","media:complete:"+lead.id+resetTestSuffix(lead));
     const context = lead.conversation_context || {};
     if (audioSent && !context.origin_confirmed && !context.origin_question_sent_at) {
       // The voice message must be delivered successfully before asking.
@@ -1009,7 +1014,7 @@ async function webhook(body: any) {
     await rows("contacts", `?chat_id=eq.${encodeURIComponent(chat)}&select=*`)
   )[0];
   const previouslyKnownContact = Boolean(contact);
-  const spokenInLastTenDays = wasRecentlyContacted(contact,previouslyKnownContact);
+  let spokenInLastTenDays = wasRecentlyContacted(contact,previouslyKnownContact);
   const incomingDisplayName = cleanDisplayName(p.notifyName || p._data?.pushName || p._data?.notifyName || "");
   if (!contact)
     contact = await insert("contacts", {
@@ -1031,6 +1036,12 @@ async function webhook(body: any) {
   const fromCampaign = hasCampaignOrigin(message,p);
   const code = campaign(message);
   let lead = (await rows("leads", `?contact_id=eq.${contact.id}&select=*`))[0];
+  // A test reset starts a fresh logical session, without rewriting real
+  // contact timestamps or deleting historical messages or financial records.
+  const testResetAt = Date.parse(String(lead?.conversation_context?.test_reset_at || ""));
+  const lastActivityAt = Date.parse(String(contact?.last_message_at || ""));
+  if (Number.isFinite(testResetAt) && Number.isFinite(lastActivityAt) &&
+      testResetAt > lastActivityAt) spokenInLastTenDays = false;
   // Restore a returning archived contact to the Kanban while retaining history.
   if (lead?.conversation_context?.kanban_archived_at &&
       !lead.conversation_context?.handoff_reason && contact.classification !== "personal") {
@@ -1156,7 +1167,7 @@ async function webhook(body: any) {
       return {lead_id:lead.id,manual_handoff:true,auto_reply:false};
     }
     if (await botOn(chat)) {
-      await send(chat,"Opa! Tudo bem? como posso ajudar?",lead,"sales:greeting:"+lead.id);
+      await send(chat,"Opa! Tudo bem? como posso ajudar?",lead,"sales:greeting:"+lead.id+resetTestSuffix(lead));
       await update("leads",lead.id,{
         welcome_sent_at:new Date().toISOString(),
         conversation_state:"discover_service",
@@ -1181,9 +1192,9 @@ async function webhook(body: any) {
     }
     // Do not confirm that audio was delivered until WAHA accepted it. A failed
     // send causes webhook retry instead of silently skipping the presentation.
-    const sentIntro = await sendMedia(chat,lead,"intro_audio","media:intro:"+lead.id);
+    const sentIntro = await sendMedia(chat,lead,"intro_audio","media:intro:"+lead.id+resetTestSuffix(lead));
     if (!sentIntro) throw Error("Áudio de apresentação ausente ou desabilitado");
-    await send(chat,documentChecklist(lead,contact),lead,"sales:documents:intro:"+lead.id);
+    await send(chat,documentChecklist(lead,contact),lead,"sales:documents:intro:"+lead.id+resetTestSuffix(lead));
     const updatedLead = await update("leads",lead.id,{
       welcome_sent_at:lead.welcome_sent_at||new Date().toISOString(),
       conversation_state:"collecting_documents",
@@ -1543,7 +1554,7 @@ async function webhook(body: any) {
     } else if (isExplicitConsent(message)) {
       const updatedLead = await update("leads", lead.id, { conversation_state: "collecting_documents" });
       lead = updatedLead || { ...lead, conversation_state: "collecting_documents" };
-      await sendMedia(chat,lead,"intro_audio","media:intro:"+lead.id);
+      await sendMedia(chat,lead,"intro_audio","media:intro:"+lead.id+resetTestSuffix(lead));
       await send(chat,documentChecklist(lead,contact),lead,"sales:documents:"+mid,"sales_documents",{
         nome:firstName(contact.display_name || lead.display_name) || "",
         documentos:requiredFor(lead).map((kind)=>"• "+docs[kind]).join("\n"),
@@ -1564,7 +1575,7 @@ async function webhook(body: any) {
     if (isExplicitConsent(message) || isSimpleYes(message)) {
       const updatedLead = await update("leads", lead.id, { conversation_state: "collecting_documents" });
       lead = updatedLead || { ...lead, conversation_state: "collecting_documents" };
-      await sendMedia(chat,lead,"intro_audio","media:intro:"+lead.id);
+      await sendMedia(chat,lead,"intro_audio","media:intro:"+lead.id+resetTestSuffix(lead));
       await send(chat,documentChecklist(lead,contact),lead,"sales:documents:"+mid,"sales_documents",{
         nome:firstName(contact.display_name || lead.display_name) || "",
         documentos:requiredFor(lead).map((kind)=>"• "+docs[kind]).join("\n"),
