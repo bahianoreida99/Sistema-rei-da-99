@@ -1053,7 +1053,7 @@ async function webhook(body: any) {
       await send(chat,answer + "\n\n" + next,lead,"price:"+mid,"price");
     }
   } else if (state === "qualify_uber" || state === "qualify_documento") {
-    if (email) {
+    if (email && !isExplicitConsent(message)) {
       await send(chat,"Obrigado! 😊 Registrei seu e-mail. " + (state === "qualify_uber"
         ? "Só me confirma: você está criando a conta Uber do zero ou resolvendo algo em uma conta existente?"
         : "Só me conta qual é a pendência no documento do carro (CRLV)."),
