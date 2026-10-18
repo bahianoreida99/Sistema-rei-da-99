@@ -1177,7 +1177,7 @@ const unknownFile=tables.documents.at(-1);
 unknownFile.received_at=new Date().toISOString();
 assert.equal(unknownFile.kind,"outro");
 assert.match(outbound.at(-1).text,/sem identificação|último arquivo/i);
-assert.match(outbound.at(-1).text,/• documento do carro/);
+assert.doesNotMatch(outbound.at(-1).text,/• documento do carro/,"Do not call an unclassified received CRLV missing before asking its type");
 await req("webhook/waha",unknownEvent("identify","É o CRLV"),hookHeaders);
 assert.equal(unknownFile.kind,"crlv");
 assert.equal(unknownFile.status,"received");
