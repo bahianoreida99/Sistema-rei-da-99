@@ -1749,9 +1749,12 @@ async function whatsapp(req: Request, path: string) {
         status: session.status,
         connected: session.status === "WORKING",
       });
-    if (disconnect) {
+    if (disconnect || (connect && session.status === "FAILED")) {
+      // A FAILED NOWEB session can retain rejected credentials. A plain restart
+      // reuses them and loops forever. Logout clears the old pairing so WAHA
+      // can actually enter SCAN_QR_CODE and produce a fresh, scannable QR.
       const loggedOut = await call("/api/sessions/default/logout", "POST");
-      if (!loggedOut.ok) throw Error("Falha ao desconectar aparelho");
+      if (!loggedOut.ok) throw Error("Falha ao limpar a autenticação antiga");
     }
     const changed = await call(
       "/api/sessions/default/" +
