@@ -442,6 +442,121 @@ function accountAnswer(value: string): "new" | "existing" | null {
   if (/(?:ja tenho|conta existente|minha conta|bloquead|suspens|nao consigo entrar|login|recuper|desativad|foi recusad|ja estou cadastrad|conta parada)/.test(s)) return "existing";
   return null;
 }
+
+type ReplyIntent = "price" | "timing" | "guarantee" | "objection" | "documents" |
+  "security" | "progress" | "payment" | "quality" | "support" | "eligibility" | "unlawful";
+type ContextualAnswer = { kinds:ReplyIntent[]; text:string };
+function replyVariant(options:readonly string[],seed:string):string {
+  let hash=2166136261;
+  for(const c of seed) hash=Math.imul(hash^c.charCodeAt(0),16777619)>>>0;
+  return options[hash%options.length];
+}
+function contextualReply(message:string,lead:any,messageId:string):ContextualAnswer | null {
+  const text=normalizeConversation(message);
+  // Pure declarations such as "Conta Uber", "sim" and "vou enviar" must
+  // continue through qualification/consent and document-state handlers.
+  if(!text || isGreetingOnly(message) || isSmallTalkFollowup(message) ||
+     isSimpleYes(message) || isNegative(message) || isExplicitConsent(message))
+    return null;
+  const isQuestion=/[?]/.test(message) ||
+    /(?:quanto|qual|quando|como|pode|tem|voc[eê]s|preciso|quero saber|e possivel|da pra|sera que|gostaria de saber|mais informac)/.test(text);
+  const unsafe=/(?:falsific|forj|fraud|adulter|documento falso|crlv falso|sem documento valido|burlar|enganar a uber|fake|alterar data do documento|driblar a verificacao)/.test(text);
+  if(unsafe) return {kinds:["unlawful"],text:replyVariant([
+    "Não fazemos documentos falsos nem burlamos verificações. Podemos analisar sua situação e orientar apenas caminhos regulares.",
+    "Só trabalhamos com análise e procedimentos legais. Não podemos falsificar CRLV, EAR ou aprovação da plataforma.",
+    "Essa alteração não pode ser feita de forma irregular. Podemos verificar quais documentos e requisitos oficiais estão pendentes."
+  ],messageId+"unlawful")};
+  const price=lead.service==="documento"?"R$ 150,00":lead.service==="uber"?"R$ 350,00":null;
+  const kinds:ReplyIntent[]=[];
+  if(isPriceObjection(message) || /(?:ta puxado|salgado|absurdo esse valor|muito dinheiro|achei salgado|carissimo|caro pra mim)/.test(text)) kinds.push("objection");
+  else if(asksPrice(message) || /(?:qnt|qto|qt|quanto voces cobram|qual o investimento|valores|precos|custos|fica em quanto|preco final)/.test(text)) kinds.push("price");
+  if(asksTiming(message) || /(?:hoje ainda|ate quando|pra ontem|urgente|urgencia|em minutos|em horas|tempo pra liberar|tempo de analise)/.test(text)) kinds.push("timing");
+  if(asksGuarantee(message) || /(?:garantem|se nao der certo|se der errado|vai funcionar|taxa de sucesso|certeza absoluta|garantido)/.test(text)) kinds.push("guarantee");
+  if(asksDocuments(message) || /(?:precisa de rg|preciso de rg|lista de arquivos|papelada|copia da cnh|foto do crlv|precisa de selfie|manda quais|documentos necessarios)/.test(text)) kinds.push("documents");
+  if(/(?:sigilo|vazamento|lgpd|usam meus dados|dados pessoais|documento e seguro|pedem senha|precisa da senha|pedem codigo|golpe|confiavel|privacidade)/.test(text)) kinds.push("security");
+  if(/(?:como ta meu pedido|como anda|em que fase|status|acompanhar|alguma novidade|ja terminou|ta pronto|ja ficou pronto|andamento|atualizacao do processo)/.test(text)) kinds.push("progress");
+  if(/(?:pago depois|paga depois|so paga depois|pagamento na entrega|boleto|cartao|aceita pix|aceitam pix|parcelas|parcela|forma de pagar|como fazer pix|adiantamento|sinal)/.test(text)) kinds.push("payment");
+  if(/(?:foto borrada|foto embaçada|foto ruim|arquivo nao abre|arquivo nao carrega|nao consigo enviar|imagem ilegivel|print serve|imagem serve)/.test(text)) kinds.push("quality");
+  if(/(?:atendente|falar com alguem|falar com uma pessoa|suporte humano|chamar o baiano)/.test(text)) kinds.push("support");
+  if(/(?:sem ear|cnh vencida|conta banida|conta bloqueada|fora do ano|cadastro recusado|conta desativada|cnh provisoria|permissao para dirigir|requisitos da uber|aprovacao da uber)/.test(text) &&
+      (isQuestion || /(?:minha|meu|estou|tenho|fui)/.test(text))) kinds.push("eligibility");
+  if(kinds.length===0 || (!isQuestion && kinds.every(k=>k==="eligibility"))) return null;
+  // One concise WhatsApp message answers at most three related questions.
+  const distinct=kinds.slice(0,3);
+  const parts:string[]=[];
+  for(const kind of distinct){
+    const variant=(options:string[])=>replyVariant(options,messageId+"|"+kind);
+    switch(kind){
+      case "objection":
+        parts.push(variant([
+          "Entendo que o valor pese. O atendimento inclui análise do seu caso, e você só paga após a entrega do serviço contratado.",
+          "Compreendo a preocupação com o preço. Primeiro avaliamos a situação, e o pagamento é após a entrega, conforme combinado.",
+          "Entendo. Nosso foco é analisar seu caso com cuidado, sem cobrar antecipadamente pelo serviço contratado."
+        ]));break;
+      case "price":
+        parts.push(price?variant([
+          "O valor é *"+price+"*, com pagamento após a entrega do serviço contratado.",
+          "Para esse serviço, cobramos *"+price+"*. Você paga após a entrega, conforme combinado.",
+          "Fica em *"+price+"*. O pagamento acontece depois da entrega do serviço."
+        ]):"O atendimento Uber custa *R$ 350,00* e o de CRLV, *R$ 150,00*. Qual dos dois você precisa?");break;
+      case "timing":
+        parts.push(variant([
+          "O prazo depende da demanda e da análise dos documentos. Confirmamos a previsão após conferir seu caso.",
+          "Assim que avaliarmos os documentos, informamos o prazo estimado. Não consigo garantir horário antes dessa análise.",
+          "A equipe verifica a situação e passa uma estimativa. O tempo pode variar conforme o caso."
+        ]));break;
+      case "guarantee":
+        parts.push(variant([
+          "Não prometemos aprovação ou desbloqueio automático. A viabilidade depende das regras aplicáveis e da análise dos documentos.",
+          "A decisão final pode depender da Uber ou do órgão responsável. Podemos analisar o caso, mas não garantir o resultado.",
+          "A análise é individual e não significa aprovação garantida. Vamos explicar o que é possível após conferir seu caso."
+        ]));break;
+      case "documents":
+        parts.push(variant([
+          "Para analisar, precisamos de:\n"+(lead.service==="documento"?"• CRLV":"• CNH frente e verso\n• CRLV\n• Selfie")+" \n• E-mail\nEnvie os arquivos legíveis aqui pelo WhatsApp.",
+          "A documentação necessária é:\n"+(lead.service==="documento"?"• CRLV":"• CNH (frente e verso)\n• CRLV\n• Selfie")+" \n• E-mail\nPode mandar um por vez.",
+          "Pode separar:\n"+(lead.service==="documento"?"• CRLV":"• CNH dos dois lados\n• CRLV\n• Selfie")+" \n• E-mail\nConferimos os arquivos antes de validar."
+        ]).replace(/[ ]+\n/g,"\n"));break;
+      case "security":
+        parts.push(variant([
+          "Seus documentos são usados para análise do atendimento. Não envie senhas, códigos de confirmação ou dados bancários.",
+          "Envie apenas os arquivos necessários, e nunca senhas ou códigos recebidos por SMS/WhatsApp.",
+          "A conferência exige documentos legíveis. Não precisamos da senha da sua conta nem de códigos de acesso."
+        ]));break;
+      case "progress":
+        parts.push(variant([
+          "Seu atendimento está na etapa de *"+(lead.conversation_state==="collecting_documents"?"recebimento dos documentos":lead.conversation_state==="awaiting_review"?"conferência dos arquivos":"análise inicial")+"*. Avisamos por aqui sobre os próximos passos.",
+          "Por enquanto, estamos em *"+(lead.conversation_state==="awaiting_review"?"conferência":lead.conversation_state==="collecting_documents"?"coleta de documentos":"atendimento inicial")+"*. A equipe informa quando houver atualização.",
+          "Consigo confirmar a etapa registrada, mas não uma conclusão ainda. Avisamos quando a análise avançar."
+        ]));break;
+      case "payment":
+        parts.push(variant([
+          "O pagamento é combinado para depois da entrega. A equipe confirma a forma de pagamento antes de concluir.",
+          "Você não precisa pagar antes da entrega do serviço contratado. Confirme a forma de pagamento com o Baiano.",
+          "O pagamento acontece após a entrega, conforme combinado. Para Pix ou parcelamento, precisamos confirmar a opção disponível."
+        ]));break;
+      case "quality":
+        parts.push(variant([
+          "Tente enviar uma foto nítida, com boa luz e todos os dados visíveis. Pode ser JPG, PNG ou PDF.",
+          "Se a imagem ficou cortada ou desfocada, mande outra foto bem iluminada, mostrando o documento inteiro.",
+          "Pode reenviar o arquivo legível por aqui. Se não conseguir anexar, nos avise para orientarmos a próxima etapa."
+        ]));break;
+      case "support":
+        parts.push("Posso encaminhar para o Baiano continuar com você por aqui.");break;
+      case "eligibility":
+        parts.push(variant([
+          "Entendi a situação. Precisamos conferir os requisitos da Uber e seus documentos antes de dizer o que é possível.",
+          "Podemos avaliar o problema e orientar as etapas regulares. Sem análise, não é possível prometer aprovação ou liberação.",
+          "Vamos verificar o que está pendente na conta e nos documentos. A aprovação depende dos critérios aplicáveis."
+        ]));break;
+      default:break;
+    }
+  }
+  const ending=distinct.includes("eligibility") && lead.service==="uber" && lead.conversation_state==="qualify_uber"
+    ? "\n\nA conta já existia ou você está criando uma nova?" : "";
+  return {kinds:distinct,text:parts.join("\n\n")+ending+(kinds.length>3?"\n\nSe quiser, explico os outros pontos também.":"")};
+}
+
 function serviceDiscovery(lead: any, contact?: any): string {
   const name = firstName(contact?.display_name || lead?.display_name);
   return helloLine(name) + "\n\nClaro, te explico! 😊 Hoje atendemos duas situações:\n• Ajuda com conta/cadastro Uber — *R$ 350,00*\n• Serviço relacionado ao documento do carro (CRLV) — *R$ 150,00*\n\nQual delas você precisa resolver?";
@@ -1213,6 +1328,7 @@ async function webhook(body: any) {
       return {lead_id:lead.id,stage:lead.stage,qualified_service:lead.service,reported_issue:resolvedIssue};
     }
   }
+  const contextual = !p.hasMedia && !sideReply && !digitalReply && !docTypeReply ? contextualReply(message,lead,mid) : null;
   if (/falar com (?:um )?(?:atendente|pessoa|humano)|atendimento humano|falar com o baiano|quero falar com alguem/i.test(message)) {
     await update("leads", lead.id, { automation_paused: true, automation_pause_reason: "manual", conversation_state: "human_handoff" });
     await send(
@@ -1290,6 +1406,11 @@ async function webhook(body: any) {
       valor_uber: "R$ 350,00",
       valor_crlv: "R$ 150,00",
     });
+  } else if (contextual) {
+    if (contextual.kinds.includes("support")) {
+      await update("leads",lead.id,{automation_paused:true,automation_pause_reason:"manual",conversation_state:"human_handoff"});
+    }
+    await send(chat,contextual.text,lead,"contextual:"+mid);
   } else if (asksDocuments(message)) {
     const updatedLead = await update("leads", lead.id, { conversation_state: "collecting_documents" });
     lead = updatedLead || { ...lead, conversation_state: "collecting_documents" };
