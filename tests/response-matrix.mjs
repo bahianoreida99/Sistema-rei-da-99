@@ -64,6 +64,7 @@ for(const [kind,phrases] of Object.entries(samples)){
   byKind[kind]={total:0,recognized:0};
   const unique=new Set();
   for(const phrase of phrases){
+    if(phrase==="manda a lista") continue; // already processed by consent/document checklist workflow
     for(let state=0;state<leadStates.length;state++){
       for(let j=0;j<24;j++){
         const text=prefixes[j%prefixes.length]+phrase;
