@@ -149,6 +149,7 @@ const { send: automationSend, sendMedia: automationSendMedia } = vm.runInNewCont
   js.outputText + "\n;({send,sendMedia});",
   {
     BahianoReadDocument: async () => ocrResult,
+    BahianoConvertToJpeg: async () => new Uint8Array([255,216,255,1,2,3,255,217]),
     Deno: {
       env: { get: (x) => env[x] },
       serve: (fn) => {
@@ -979,6 +980,8 @@ assert.equal(await automationSendMedia("test@c.us",mockLead,"complete_audio","te
 assert.equal(outbound.at(-1).mediaEndpoint,"/api/sendVoice");
 assert.equal(await automationSendMedia("test@c.us",mockLead,"proof_1","test:proof"),true);
 assert.equal(outbound.at(-1).mediaEndpoint,"/api/sendImage");
+assert.equal(outbound.at(-1).file.mimetype,"image/jpeg");
+assert.ok(outbound.at(-1).file.filename.endsWith(".jpg"));
 assert.equal(tables.messages.at(-1).kind,"image");
 assert.equal(await automationSendMedia("test@c.us",mockLead,"proof_1","test:proof"),true);
 assert.equal(outbound.length,mediaBefore+3,"proof image must not repeat");
