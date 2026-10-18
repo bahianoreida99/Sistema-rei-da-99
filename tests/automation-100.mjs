@@ -30,7 +30,7 @@ const tables = {
   messages: [],
   documents: [],
   lead_activity: [],
-  business_settings: [{ key: "bot", value: { enabled: true } }],
+  business_settings: [{ key: "bot", value: { enabled: true } },{key:"automation_media",value:{intro_audio:{path:"intro_audio/test.mp3",mime_type:"audio/mpeg",enabled:true}}}],
 };
 let i = 0;
 const outbound = [];
@@ -79,6 +79,11 @@ async function fetchMock(input, init = {}) {
       whatsappState = action === "stop" ? "STOPPED" : "STARTING";
       return fakeJson({ name: "default", status: whatsappState });
     }
+    if(u.pathname==="/api/sendVoice"||u.pathname==="/api/sendImage"){
+      if(failSend)return fakeJson({error:"unavailable"},503);
+      const msg=JSON.parse(init.body);outbound.push({...msg,mediaEndpoint:u.pathname});
+      return fakeJson({id:"media-"+outbound.length});
+    }
     if (u.pathname === "/api/sendText") {
       if (failSend) return fakeJson({ error: "unavailable" }, 503);
       const msg = JSON.parse(init.body);
@@ -95,6 +100,8 @@ async function fetchMock(input, init = {}) {
     return init.headers?.Authorization === "Bearer good"
       ? fakeJson(authUser)
       : fakeJson({ error: "nope" }, 401);
+  if(u.pathname.startsWith("/storage/v1/object/authenticated/bahiano-automacao/"))
+    return new Response(new Uint8Array([73,68,51,3,0,0,0,0,0,0,0,1]),{status:200,headers:{"content-type":"audio/mpeg"}});
   if (u.pathname.startsWith("/storage/v1/object/"))
     return fakeJson({ Key: "test" });
   if (u.pathname === "/rest/v1/rpc/bahiano_claim_event") {
@@ -159,6 +166,7 @@ const automationSend = vm.runInNewContext(
     RegExp,
     encodeURIComponent,
     decodeURIComponent,
+    btoa,
   },
   { timeout: 5000 },
 );
@@ -240,7 +248,7 @@ for(let i=0;i<10;i++) await caseRun(0,i,"mensagem neutra ou saudação #"+(i+1),
   const chat=digits(10,i),before=tables.leads.length,sentBefore=outbound.length;
   const samples=["Oi, bom dia","Tudo bem?","Obrigado","Bom final de semana","Quero falar com você","Olá","Enviei mensagem errada","Boa noite","Tudo ótimo","Como vai?"];
   const result=await post("unknown-"+i,chat,samples[i]);
-  assert.equal(result.first,true);
+  assert.equal(result.generic_greeting,true);
   assert.equal(tables.leads.length,before+1);
   assert.equal(relatedLead(chat).service,"desconhecido");
   assert.equal(relatedLead(chat).stage,"leads");
@@ -251,12 +259,13 @@ for(let i=0;i<10;i++) await caseRun(1,i,"orgânico "+organicInput[i][1]+" #"+(i+
   const chat=digits(11,i),[body,service]=organicInput[i],before=outbound.length;
   const result=await post("organic-"+i,chat,body);
   const lead=relatedLead(chat);assert.ok(lead);
-  assert.equal(result.first,true);
+  assert.equal(result.started_documents,true);
   assert.equal(lead.service,service);
   assert.equal(lead.source,"whatsapp");
   assert.equal(lead.stage,"leads");
   assert.equal(lead.price_cents,service==="uber"?35000:15000);
-  assert.equal(outbound.length,before+1);
+  assert.equal(outbound.length,before+2,"intro audio and one checklist");
+  assert.equal(outbound.at(-2).mediaEndpoint,"/api/sendVoice");
   assert.doesNotMatch(outbound.at(-1).text,/\bRG\b/i);
   organic.push({chat,lead,id:"organic-"+i,service});
 });
@@ -264,12 +273,13 @@ for(let i=0;i<10;i++) await caseRun(2,i,"campanha rastreada "+campaignInput[i][2
   const chat=digits(12,i),[body,service,code]=campaignInput[i],before=outbound.length;
   const result=await post("campaign-"+i,chat,body);
   const lead=relatedLead(chat);assert.ok(lead);
-  assert.equal(result.first,true);
+  assert.equal(result.started_documents,true);
   assert.equal(lead.service,service);
   assert.equal(lead.stage,"leads_campaign");
   assert.equal(lead.source,"site");
   assert.equal(lead.campaign_code,code);
-  assert.equal(outbound.length,before+1);
+  assert.equal(outbound.length,before+2,"intro audio and one checklist");
+  assert.equal(outbound.at(-2).mediaEndpoint,"/api/sendVoice");
   assert.doesNotMatch(outbound.at(-1).text,/\bRG\b/i);
   campaigns.push({chat,lead,id:"campaign-"+i,service});
 });
@@ -303,8 +313,8 @@ for(let i=0;i<10;i++) await caseRun(6,i,"restrição de destinatário "+(i+1),as
   bot.value={enabled:true,test_chat_ids:allowed?[chat]:["5511999999999@c.us"]};
   const result=await post("restricted-"+i,chat,"Preciso de cadastro Uber");
   const lead=relatedLead(chat);
-  assert.ok(lead);assert.equal(result.first,true);
-  assert.equal(outbound.length,before+(allowed?1:0));
+  assert.ok(lead);assert.equal(Boolean(result.started_documents),allowed);
+  assert.equal(outbound.length,before+(allowed?2:0));
   assert.equal(Boolean(lead.welcome_sent_at),allowed);
   if(allowed)assert.doesNotMatch(outbound.at(-1).text,/\bRG\b/i);
 });
@@ -437,34 +447,33 @@ for(let i=0;i<1000;i++){
   const base=outbound.length;
   try{
     await postConversation("conv-"+i+"-1",chat,scenario.first,name);
-    assert.equal(outbound.length,base+1,"every opening must receive exactly one response");
-    const firstReply=outbound.at(-1).text;
-    if(scenario.greetingFirst){
-      assert.equal(firstReply,"Opa! Tudo bem? como posso ajudar?","greeting must have exactly the approved text");
-      assert.equal(relatedLead(chat)?.service,"desconhecido","a greeting should appear in the Kanban immediately");
+    const firstIsGeneric = scenario.greetingFirst || scenario.ambiguousFirst;
+    assert.equal(outbound.length,base+(firstIsGeneric?1:2),"one short greeting or audio followed by checklist");
+    if(firstIsGeneric){
+      assert.equal(outbound.at(-1).text,"Opa! Tudo bem? como posso ajudar?");
+      assert.equal(relatedLead(chat)?.service,"desconhecido");
     } else {
-      assert.ok(firstReply.length>35);
-      if(scenario.ambiguousFirst){
-        assert.match(firstReply,/R\$ 350,00/);
-        assert.match(firstReply,/R\$ 150,00/);
-        assert.equal(relatedLead(chat)?.service,"desconhecido","an ambiguous price inquiry should appear in the Kanban for follow-up");
-      } else {
-        assert.match(firstReply,/R\$ (?:350|150),00/);
-      }
-      if(first)assert.ok(firstReply.includes(first),"opening should personalize from WhatsApp name");
+      assert.equal(outbound.at(-2).mediaEndpoint,"/api/sendVoice");
+      assert.match(outbound.at(-1).text,/CNH|CRLV|documento do carro/i);
+      assert.match(outbound.at(-1).text,/E-mail/);
+      if(first)assert.ok(outbound.at(-1).text.includes(first),"document checklist can personalize");
     }
+    const countAfterFirst=outbound.length;
     await postConversation("conv-"+i+"-2",chat,scenario.second,name);
-    assert.equal(outbound.length,base+2,"service selection must receive a contextual reply");
+    assert.equal(outbound.length,countAfterFirst+(firstIsGeneric?2:1),"resolved service starts audio/checklist once; known service gets progress");
     const lead=relatedLead(chat);
     assert.ok(lead,"a qualified service must create a lead");
     assert.equal(lead.service,scenario.service);
-    assert.match(outbound.at(-1).text,/R\$ (?:350|150),00/);
-    assert.match(outbound.at(-1).text,scenario.service==="uber"?/conta do zero|conta que j[aá] existe|quer seguir|pode seguir/i:/CRLV|documento do carro|quer seguir|pode seguir/i);
+    if(firstIsGeneric)assert.equal(outbound.at(-2).mediaEndpoint,"/api/sendVoice");
+    assert.match(outbound.at(-1).text,/CNH|CRLV|documento do carro|faltam/i);
+    assert.equal(lead.conversation_state,"collecting_documents");
+    const countAfterSecond=outbound.length;
     await postConversation("conv-"+i+"-3",chat,scenario.third,name);
-    assert.equal(outbound.length,base+3,"qualification, FAQ or objection must be answered");
-    assert.equal(lead.conversation_state,"offer_consent","the customer should remain in the consent step until they agree");
+    assert.equal(outbound.length,countAfterSecond+1,"next reply receives only missing document guidance");
+    assert.equal(lead.conversation_state,"collecting_documents");
+    const countAfterThird=outbound.length;
     await postConversation("conv-"+i+"-4",chat,scenario.fourth,name);
-    assert.equal(outbound.length,base+4,"consent or document request must receive one reply");
+    assert.equal(outbound.length,countAfterThird+1,"continued reply gets one missing-documents reminder");
     assert.equal(lead.conversation_state,"collecting_documents");
     assert.match(outbound.at(-1).text,/CNH|CRLV|documento do carro/i);
     assert.match(outbound.at(-1).text,/E-mail/i);

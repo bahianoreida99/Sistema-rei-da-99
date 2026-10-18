@@ -30,7 +30,7 @@ const tables = {
   messages: [],
   documents: [],
   lead_activity: [],
-  business_settings: [{ key: "bot", value: { enabled: true } }],
+  business_settings: [{ key: "bot", value: { enabled: true } },{key:"automation_media",value:{intro_audio:{path:"intro_audio/test.mp3",mime_type:"audio/mpeg",enabled:true}}}],
 };
 let i = 0;
 const outbound = [];
@@ -216,12 +216,13 @@ r = await req(
   event("msg-1", "Olá! Vim pelo site, REF:ABC123, Cadastro Uber, CNH vencida."),
   { "x-bahiano-webhook-token": "private_token" },
 );
-assert.equal(r.first, true);
-assert.equal(tables.leads.length, 1);
-assert.equal(tables.leads[0].stage, "leads_campaign");
-assert.equal(outbound.length, 1);
-assert.match(outbound[0].text, /R\$ 350,00/);
-assert.doesNotMatch(outbound[0].text, /\bRG\b/i, 'Mensagem inicial não deve pedir RG');
+assert.equal(r.started_documents,true);
+assert.equal(tables.leads.length,1);
+assert.equal(tables.leads[0].stage,"leads_campaign");
+assert.equal(outbound.length,2);
+assert.equal(outbound[0].mediaEndpoint,"/api/sendVoice");
+assert.match(outbound[1].text,/CNH|CRLV/);
+assert.doesNotMatch(outbound[1].text,/\bRG\b/i,'Checklist não deve pedir RG');
 r = await req("webhook/waha", event("msg-1", "duplicated"), {
   "x-bahiano-webhook-token": "private_token",
 });
@@ -290,14 +291,15 @@ const lidBody = (id, body) => ({
 });
 const lidSentBefore = outbound.length;
 r = await req("webhook/waha", lidBody("lid-case-1", "Olá, quero fazer uma conta uber"), { "x-bahiano-webhook-token": "private_token" });
-assert.equal(r.first, true);
+assert.equal(r.started_documents, true);
 const resolved = tables.contacts.find(c => c.chat_id === lidChat);
 assert.ok(resolved, "LID alternative JID must identify the customer phone");
 assert.equal(tables.contacts.some(c => c.chat_id === lidValue), false);
 const resolvedLead = tables.leads.find(l => l.contact_id === resolved.id);
 assert.equal(resolvedLead.service, "uber");
 assert.equal(resolvedLead.stage, "leads");
-assert.equal(outbound.length, lidSentBefore + 1);
+assert.equal(outbound.length, lidSentBefore + 2);
+assert.equal(outbound.at(-2).mediaEndpoint,"/api/sendVoice");
 assert.equal(outbound.at(-1).chatId, lidChat);
 assert.doesNotMatch(outbound.at(-1).text, /\bRG\b/i);
 r = await req("webhook/waha", lidBody("lid-case-2", "Ok, vou enviar os documentos"), { "x-bahiano-webhook-token": "private_token" });
@@ -322,7 +324,7 @@ r = await req(
   },
   hookHeaders,
 );
-assert.equal(r.first, true);
+assert.equal(r.generic_greeting, true);
 assert.equal(tables.leads.length, count + 1);
 const greetingLead = tables.leads.at(-1);
 assert.equal(greetingLead.service, "desconhecido");
@@ -340,11 +342,39 @@ const leadForChat=(chat)=>tables.leads.find(lead=>
 let priorOut=outbound.length;
 const neutralChat="5511999991021@c.us";
 r=await req("webhook/waha",routedMessage("neutral-first",neutralChat,"Posso falar com alguém?"),hookHeaders);
-assert.equal(r.first,true);
+assert.equal(r.generic_greeting,true);
 assert.equal(leadForChat(neutralChat).stage,"leads");
 assert.equal(leadForChat(neutralChat).source,"whatsapp");
 assert.equal(outbound.length,priorOut+1);
 assert.equal(outbound.at(-1).text,"Opa! Tudo bem? como posso ajudar?");
+// An off-topic answer is not a commercial lead and never gets another bot reply.
+const handoffBefore=outbound.length;
+const unrelated=await req("webhook/waha",routedMessage("neutral-followup",neutralChat,"Quero saber do futebol"),hookHeaders);
+assert.equal(unrelated.manual_handoff,true);
+assert.equal(outbound.length,handoffBefore);
+const manualLead=leadForChat(neutralChat);
+assert.equal(manualLead.automation_paused,true);
+assert.equal(manualLead.conversation_context.handoff_reason,"out_of_scope");
+assert.ok(manualLead.conversation_context.kanban_archived_at);
+await req("webhook/waha",routedMessage("neutral-after-handoff",neutralChat,"Quero cadastro Uber"),hookHeaders);
+assert.equal(outbound.length,handoffBefore,"handoff permanently silences the bot");
+assert.equal(manualLead.service,"desconhecido","the manual queue retains the original reason");
+assert.ok(tables.messages.some(m=>m.contact_id===manualLead.contact_id&&m.body==="Quero cadastro Uber"),"Baiano retains all messages in human queue");
+// New generic request that becomes commercial goes straight to voice + checklist.
+const upgradeGenericChat="5511999991028@c.us";
+let directBefore=outbound.length;
+await req("webhook/waha",routedMessage("upgrade-generic",upgradeGenericChat,"Oi"),hookHeaders);
+assert.equal(outbound.at(-1).text,"Opa! Tudo bem? como posso ajudar?");
+await req("webhook/waha",routedMessage("upgrade-service",upgradeGenericChat,"Quero fazer uma conta"),hookHeaders);
+assert.equal(leadForChat(upgradeGenericChat).service,"uber");
+assert.equal(outbound.length,directBefore+3);
+assert.equal(outbound.at(-2).mediaEndpoint,"/api/sendVoice");
+assert.match(outbound.at(-1).text,/CNH|CRLV/);
+assert.equal(leadForChat(upgradeGenericChat).conversation_state,"collecting_documents");
+const afterIntro=outbound.length;
+await req("webhook/waha",routedMessage("upgrade-continue",upgradeGenericChat,"Meu email é teste@example.com"),hookHeaders);
+assert.equal(outbound.length,afterIntro+1,"documents progress must not resend introductory audio");
+assert.match(outbound.at(-1).text,/faltam/i);
 const siteChat="5511999991022@c.us";
 r=await req("webhook/waha",routedMessage("site-first",siteChat,"Oi, vim pelo site"),hookHeaders);
 assert.equal(leadForChat(siteChat).stage,"leads_campaign");
@@ -373,7 +403,7 @@ assert.equal(leadForChat(recentChat).stage,"leads");
 assert.equal(outbound.length,priorOut,"recent contact gets no generic repeat greeting");
 r=await req("webhook/waha",routedMessage("recent-uber",recentChat,"Minha conta Uber está bloqueada"),hookHeaders);
 assert.equal(leadForChat(recentChat).service,"uber");
-assert.equal(outbound.length,priorOut+1,"Uber inquiry bypasses 10-day quiet period");
+assert.equal(outbound.length,priorOut+2,"Uber inquiry starts audio and checklist");
 
 const oldChat="5511999991026@c.us";
 tables.contacts.push({
@@ -383,7 +413,7 @@ tables.contacts.push({
 });
 priorOut=outbound.length;
 r=await req("webhook/waha",routedMessage("old-hello",oldChat,"Oi"),hookHeaders);
-assert.equal(r.first,true);
+assert.equal(r.generic_greeting,true);
 assert.equal(outbound.length,priorOut+1,"11-day-old contact may receive greeting again");
 
 const upgradeChat="5511999991027@c.us";
@@ -391,7 +421,7 @@ await req("webhook/waha",routedMessage("upgrade-initial",upgradeChat,"Oi"),hookH
 assert.equal(leadForChat(upgradeChat).stage,"leads");
 r=await req("webhook/waha",routedMessage("upgrade-ad",upgradeChat,"Encontrei vocês no anúncio da Meta Ads"),hookHeaders);
 assert.equal(leadForChat(upgradeChat).source,"site");
-assert.equal(leadForChat(upgradeChat).stage,"conversando","existing lead moves into conversation without losing ad attribution");
+assert.equal(leadForChat(upgradeChat).stage,"leads_campaign","campaign is attributed before commercial service is identified");
 console.log("PASS: first-contact routing, WAHA app ignored as source, Meta referral, site attribution, 10-day generic silence and Uber exception.");
 
 // End-to-end delivery simulation for the new multi-intent reply engine. Uses
@@ -414,7 +444,7 @@ for(let i=0;i<faqInputs.length;i++){
     last_message_at:new Date().toISOString()};
   const lead={id:"00000000-0000-4000-8000-"+String(8900+i).padStart(12,"0"),
     contact_id:contact.id,service:"uber",source:"whatsapp",stage:"conversando",
-    conversation_state:"offer_consent",conversation_context:{},issue:"Cadastro suspenso",
+    conversation_state:"collecting_documents",conversation_context:{intro_onboarding_started_at:new Date().toISOString()},issue:"Cadastro suspenso",
     automation_paused:false,price_cents:35000,welcome_sent_at:new Date().toISOString(),
     first_reply_at:new Date().toISOString()};
   tables.contacts.push(contact);tables.leads.push(lead);
@@ -424,7 +454,7 @@ for(let i=0;i<faqInputs.length;i++){
   assert.equal(outbound.length,start+1,"one response per incoming message "+customer);
   assert.match(outbound.at(-1).text,new RegExp(expected,"i"),customer);
   assert.doesNotMatch(outbound.at(-1).text,/Qual delas você precisa resolver|Hoje atendemos duas situações/i);
-  assert.equal(lead.conversation_state,"offer_consent","FAQ does not reset sales funnel");
+  assert.equal(lead.conversation_state,"collecting_documents","FAQ does not reset document collection");
 }
 console.log("PASS: 15 real webhook-to-response contextual FAQ, multi-question and safety paths (mocked).");
 
@@ -452,16 +482,16 @@ r=await req("webhook/waha",routedMessage("stuck-greeting",stuckChat,"Olá tudo b
 assert.equal(r.quiet_recent_contact,true,"repeat greeting within 10 days must be silent");
 assert.equal(outbound.length,messagesBefore);
 r=await req("webhook/waha",routedMessage("stuck-issue",stuckChat,"Conta uber, estou sem ear na cnh"),hookHeaders);
-assert.equal(r.qualified_service,"uber");
+assert.equal(r.started_documents,true);
 const stuckLead=leadForChat(stuckChat);
 assert.equal(stuckLead.issue,"CNH sem EAR");
-assert.equal(stuckLead.conversation_state,"offer_consent");
-assert.equal(outbound.length,messagesBefore+1);
-assert.match(outbound.at(-1).text,/CNH sem EAR/);
-assert.match(outbound.at(-1).text,/R\$ 350,00/);
+assert.equal(stuckLead.conversation_state,"collecting_documents");
+assert.equal(outbound.length,messagesBefore+2);
+assert.equal(outbound.at(-2).mediaEndpoint,"/api/sendVoice");
+assert.match(outbound.at(-1).text,/CNH|CRLV/);
 assert.doesNotMatch(outbound.at(-1).text,/Qual delas você precisa resolver|Hoje atendemos duas situações|R\$ 150,00/);
 r=await req("webhook/waha",routedMessage("stuck-again",stuckChat,"Conta uber"),hookHeaders);
-assert.equal(outbound.length,messagesBefore+2);
+assert.equal(outbound.length,messagesBefore+3);
 assert.doesNotMatch(outbound.at(-1).text,/Qual delas você precisa resolver|Hoje atendemos duas situações/);
 const knownChat="5511999991059@c.us",knownContactId="00000000-0000-4000-8000-000000000860";
 tables.contacts.push({
@@ -476,9 +506,9 @@ tables.leads.push({
   welcome_sent_at:new Date().toISOString(),first_reply_at:new Date().toISOString(),price_cents:35000
 });
 r=await req("webhook/waha",routedMessage("known-uber",knownChat,"Conta uber"),hookHeaders);
-assert.equal(r.qualified_service,"uber");
-assert.equal(leadForChat(knownChat).conversation_state,"qualify_uber");
-assert.match(outbound.at(-1).text,/R\$ 350,00/);
+assert.equal(r.started_documents,true);
+assert.equal(leadForChat(knownChat).conversation_state,"collecting_documents");
+assert.match(outbound.at(-1).text,/CNH|CRLV/);
 assert.doesNotMatch(outbound.at(-1).text,/Qual delas você precisa resolver|R\$ 150,00/);
 console.log("PASS: known Uber case leaves discover_service, remembers EAR issue, does not re-greet/re-list services, keeps legitimate qualification.");
 
@@ -702,7 +732,7 @@ const testEvent = (id, from) => ({
 await req("webhook/waha", testEvent("test-scope-denied", "5511999990098@c.us"), hookHeaders);
 assert.equal(outbound.length, sentCount);
 await req("webhook/waha", testEvent("test-scope-allowed", "5511999990099@c.us"), hookHeaders);
-assert.equal(outbound.length, sentCount + 1);
+assert.equal(outbound.length, sentCount + 2);
 tables.business_settings[0].value = { enabled: false };
 console.log("PASS: test-mode automation only sends to its authorized contact.");
 console.log(
@@ -727,7 +757,7 @@ assert.equal(
 );
 failSend = false;
 r = await req("webhook/waha", recovery, hookHeaders);
-assert.equal(r.first, true);
+assert.equal(r.started_documents, true);
 assert.equal(
   tables.messages.filter((m) => m.waha_id === "recover-1").length,
   1,
@@ -841,7 +871,7 @@ for (const service of ["uber", "documento"]) {
   await req("webhook/waha", incoming("reply", "Concordo. Meu email e teste@example.invalid"), hookHeaders);
   assert.equal(journey.stage, "conversando");assert.equal(journey.email, "teste@example.invalid");
   r=await req("admin/details",{lead_id:journey.id,email:"invalid-email"},{authorization:"Bearer good"});assert.match(r.error,/válido/);assert.equal(journey.email,"teste@example.invalid");
-  assert.match(outbound.at(-1).text,/Envie, por favor|documentos/);
+  assert.match(outbound.at(-1).text,/Para continuar|faltam|CNH|CRLV/);
   ocrResult = { text: "Paisagem com arvores e flores sem documento", confidence: 94, method: "image_ocr" };
   await req("webhook/waha", incoming("unknown", "", true), hookHeaders);
   const unknown = tables.documents.at(-1);assert.equal(unknown.kind, "outro");assert.equal(unknown.status, "received");
@@ -1130,11 +1160,11 @@ console.log("PASS: all 24 automation templates save, substitute variables, persi
 // Backend media integration: private Storage -> base64 -> WAHA voice/image -> dedupe.
 // These tests never connect to a real WhatsApp session.
 const mockLead={id:"media-test-lead",contact_id:"media-test-contact",source:"whatsapp",service:"uber"};
-tables.business_settings.push({key:"automation_media",value:{
+tables.business_settings.find(setting=>setting.key==="automation_media").value={
   intro_audio:{path:"intro_audio/intro.mp3",mime_type:"audio/mpeg",enabled:true},
   complete_audio:{path:"complete_audio/final.mp3",mime_type:"audio/mpeg",enabled:true},
   proof_1:{path:"proof_1/prova.png",mime_type:"image/png",enabled:true}
-}});
+};
 let mediaBefore=outbound.length;
 assert.equal(await automationSendMedia("test@c.us",mockLead,"intro_audio","test:intro"),true);
 assert.equal(outbound.length,mediaBefore+1);

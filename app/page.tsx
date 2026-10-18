@@ -42,7 +42,7 @@ import SettingsPanel from "./settings-panel";
 import AutomationPanel from "./automation-panel";
 import DocumentPreview from "./document-preview";
 
-type Section = "dashboard" | "kanban" | "settings" | "automation";
+type Section = "dashboard" | "kanban" | "human" | "settings" | "automation";
 const docLabels: Record<string, string> = {
   cnh_frente: "CNH — frente",
   cnh_sem_lado: "CNH — lado a confirmar",
@@ -88,7 +88,7 @@ export default function Home() {
   const [month, setMonth] = useState(() => financialMonth());
   useEffect(() => { const timer = setInterval(() => setMonth(financialMonth()), 10000); return () => clearInterval(timer); }, []);
   const viewLeads = useMemo(
-    () => leads.filter((lead) => lead.source !== "demonstracao"),
+    () => leads.filter((lead) => lead.source !== "demonstracao" && !lead.conversation_context?.handoff_reason),
     [leads],
   );
   // Archive existing Kanban conversations without deleting historical records,
@@ -97,10 +97,14 @@ export default function Home() {
     () => viewLeads.filter((lead) => !lead.conversation_context?.kanban_archived_at),
     [viewLeads],
   );
+  const manualLeads = useMemo(
+    () => leads.filter(lead => lead.source !== "demonstracao" && lead.conversation_context?.handoff_reason === "out_of_scope"),
+    [leads],
+  );
   const selectedRef = useRef<string | null>(null);
   const refreshGeneration = useRef(0);
   selectedRef.current = selected;
-  const active = kanbanLeads.find((l) => l.id === selected) || null;
+  const active = (section === "human" ? manualLeads : kanbanLeads).find((l) => l.id === selected) || null;
   const refresh = useCallback(async () => {
     if (!supabase) return;
     const generation = ++refreshGeneration.current;
@@ -664,6 +668,9 @@ export default function Home() {
           >
             <Archive size={19} /> Kanban
           </button>
+          <button className={section === "human" ? "navItem active" : "navItem"} onClick={() => {setSelected(null);setSection("human");}}>
+            <MessageCircle size={19} /> Atendimento do Baiano ({manualLeads.length})
+          </button>
           <button className={section === "automation" ? "navItem active" : "navItem"} onClick={() => setSection("automation")}><MessageCircle size={19} /> Automação</button>
         </nav>
         <div className="sidebarFoot">
@@ -683,12 +690,12 @@ export default function Home() {
         <header className="header">
           <div>
             <h1>
-              {section === "dashboard" ? "Dashboard" : section === "settings" ? "Configurações" : section === "automation" ? "Automação" : "Kanban de Atendimentos"}
+              {section === "dashboard" ? "Dashboard" : section === "human" ? "Atendimento do Baiano" : section === "settings" ? "Configurações" : section === "automation" ? "Automação" : "Kanban de Atendimentos"}
             </h1>
             <p>
               {section === "dashboard"
                 ? `Recebimentos de ${month.split("-").reverse().join("/")}. Histórico preservado; pendências de todos os meses.`
-                : section === "automation" ? "Edite as mensagens enviadas em cada momento do atendimento." : section === "settings" ? "Gerencie sua conta e integrações." : "Acompanhe seus clientes e produções em um só lugar."}
+                : section === "human" ? "Contatos fora do assunto comercial. O robô parou de responder; apenas o Baiano continua o atendimento." : section === "automation" ? "Edite as mensagens enviadas em cada momento do atendimento." : section === "settings" ? "Gerencie sua conta e integrações." : "Acompanhe seus clientes e produções em um só lugar."}
             </p>
           </div>
           {section === "kanban" && (
@@ -789,6 +796,47 @@ export default function Home() {
                 ))}
               </section>
             </div>
+          </div>
+        ) : section === "human" ? (
+          <div className="dashboard">
+            <section className="panel">
+              <h2>Mensagens para o Baiano ({manualLeads.length})</h2>
+              <p className="muted">Estes contatos foram retirados do Kanban. O bot está pausado e não responderá automaticamente.</p>
+              {manualLeads.length === 0 && <p className="empty">Nenhum contato aguardando atendimento humano.</p>}
+              <div className="dashPanels">
+                <section className="panel">
+                  {manualLeads.map(l=>(
+                    <button type="button" className="dashRow" key={l.id}
+                      onClick={()=>setSelected(l.id)}
+                      style={{width:"100%",cursor:"pointer",textAlign:"left"}}>
+                      <span>{l.display_name || l.phone || "Contato sem nome"}</span>
+                      <strong>{selected===l.id?"Aberto":"Ver conversa"}</strong>
+                    </button>
+                  ))}
+                </section>
+                <section className="panel">
+                  {active ? (
+                    <>
+                      <h3>{active.display_name || active.phone || "Contato"}</h3>
+                      <p className="muted">Atendimento manual, sem mensagens automáticas.</p>
+                      <div className="chatScroll">
+                        {messages.map(m=>(
+                          <div key={m.id} className={"bubble "+(m.direction==="outgoing"?"sent":"received")}>
+                            <span>{m.body || (m.kind==="image"?"📷 Imagem":m.kind==="document"?"📎 Documento":"Áudio ou mídia")}</span>
+                            <small>{new Date(m.received_at).toLocaleString("pt-BR")}</small>
+                          </div>
+                        ))}
+                        {!messages.length && <p className="muted">Nenhuma mensagem registrada.</p>}
+                      </div>
+                      <form className="chatComposer" onSubmit={e=>{e.preventDefault();void send();}}>
+                        <input placeholder="Responder manualmente…" value={draft} onChange={e=>setDraft(e.target.value)}/>
+                        <button title="Enviar pelo WhatsApp" disabled={!draft.trim()||busy==="send"}><Send size={18}/></button>
+                      </form>
+                    </>
+                  ) : <p className="muted">Selecione um contato para o Baiano continuar a conversa.</p>}
+                </section>
+              </div>
+            </section>
           </div>
         ) : (
           <>
