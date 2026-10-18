@@ -134,6 +134,7 @@ async function fetchMock(input, init = {}) {
     if (b.chat_id && tables[table].some((x) => x.chat_id === b.chat_id))
       return fakeJson({ error: "unique" }, 409);
     b.id = b.id || "00000000-0000-4000-8000-" + String(++i).padStart(12, "0");
+    if(table==="documents" && !b.received_at)b.received_at=new Date().toISOString();
     tables[table].push(b);
     return fakeJson([b]);
   }
@@ -907,7 +908,7 @@ for (const service of ["uber", "documento"]) {
   ocrResult = { text: "Paisagem com arvores e flores sem documento", confidence: 94, method: "image_ocr" };
   await req("webhook/waha", incoming("unknown", "", true), hookHeaders);
   const unknown = tables.documents.at(-1);assert.equal(unknown.kind, "outro");assert.equal(unknown.status, "received");
-  assert.match(outbound.at(-1).text, /confirmar o tipo/);
+  assert.match(outbound.at(-1).text, /sem identificação|último arquivo/i);
   unknown.received_at = new Date().toISOString();
   await req("webhook/waha", incoming("identify-unknown", "RG frente"), hookHeaders);
   assert.equal(unknown.kind,"rg_frente");assert.equal(unknown.identification_method,"message_followup");assert.equal(unknown.status,"received");
@@ -1049,9 +1050,8 @@ const progressCnh=tables.documents.at(-1);
 progressCnh.received_at=new Date().toISOString(); // DB default in production
 assert.equal(progressCnh.kind,"cnh_sem_lado");
 assert.match(outbound.at(-1).text,/digital.*frente e verso/i);
-assert.match(outbound.at(-1).text,/CRLV/);
-assert.match(outbound.at(-1).text,/selfie/);
-assert.match(outbound.at(-1).text,/E-mail/);
+assert.match(outbound.at(-1).text,/não precisa reenviar/i);
+assert.doesNotMatch(outbound.at(-1).text,/Para continuar, ainda faltam/i,"Do not ask for CRLV/selfie before classifying the uploaded CNH");
 const digitalResponsesBefore=outbound.length;
 await progressCall("digital","Digital");
 assert.equal(outbound.length,digitalResponsesBefore+1,"Digital must receive acknowledgement");
@@ -1095,6 +1095,46 @@ assert.match(outbound.at(-1).text,/• selfie com fundo branco/);
 assert.doesNotMatch(outbound.at(-1).text,/• E-mail|• CNH/);
 console.log("PASS: first-to-last document checklist: CNH Digital, CRLV, selfie, email, idempotency, rejection and human review.");
 
+// Regression for multiple uncertain uploads in a real-world test: the bot
+// asks about the latest *unidentified* file rather than repeating every
+// document requirement. Clarification resolves one item at a time.
+const uncertainChat="5511999996877@c.us";
+const uncertain = (id,body,filename) => ({
+  event:"message",session:"default",payload:{
+    from:uncertainChat,id:"uncertain-"+id,fromMe:false,body,
+    hasMedia:Boolean(filename),
+    ...(filename?{media:{url:"https://waha.example/api/files/fixture.png",
+      mimetype:"image/png",filename}}:{})
+  }
+});
+await req("webhook/waha",uncertain("hello","Preciso criar uma conta Uber"),hookHeaders);
+ocrResult={text:"fotografia sem leitura clara",confidence:25,method:"image_ocr"};
+await req("webhook/waha",uncertain("first-file","","arquivo1.png"),hookHeaders);
+const u1=tables.documents.at(-1);u1.received_at=new Date(Date.now()-15000).toISOString();
+assert.equal(u1.kind,"outro");
+assert.match(outbound.at(-1).text,/último arquivo enviado é CNH, CRLV ou selfie/i);
+assert.doesNotMatch(outbound.at(-1).text,/Para continuar, ainda faltam/i);
+await req("webhook/waha",uncertain("second-file","","arquivo2.png"),hookHeaders);
+const u2=tables.documents.at(-1);u2.received_at=new Date().toISOString();
+assert.equal(u2.kind,"outro");
+assert.match(outbound.at(-1).text,/2 arquivos recebidos/i);
+await req("webhook/waha",uncertain("email","testefile@example.invalid"),hookHeaders);
+assert.match(outbound.at(-1).text,/não precisa reenviá-los agora/i);
+assert.doesNotMatch(outbound.at(-1).text,/último arquivo enviado é/i,"Do not repeat classification question after email");
+await req("webhook/waha",uncertain("identify-latest","o último arquivo é CRLV"),hookHeaders);
+assert.equal(u2.kind,"crlv","Latest pending upload is the one clarified");
+assert.equal(u1.kind,"outro","Previous unknown file remains unchanged");
+assert.match(outbound.at(-1).text,/último arquivo enviado é CNH, CRLV ou selfie/i,
+  "After one file is resolved, ask about the other unknown");
+await req("webhook/waha",uncertain("identify-previous","selfie"),hookHeaders);
+assert.equal(u1.kind,"selfie","Second clarification resolves the remaining upload");
+assert.doesNotMatch(outbound.at(-1).text,/sem identificação|último arquivo enviado/i);
+assert.match(outbound.at(-1).text,/CNH/,"Only CNH is now outstanding");
+const unknownCount=tables.documents.filter(d=>d.lead_id===leadForChat(uncertainChat).id && d.kind==="outro").length;
+assert.equal(unknownCount,0);
+console.log("PASS: two unidentified files receive one-at-a-time classification, email does not repeat the question, no file is falsely verified.");
+
+
 const separateChat="5511999996790@c.us";
 const separate=(id,body,filename)=>({
   event:"message",session:"default",payload:{from:separateChat,id:"separate-"+id,fromMe:false,body,hasMedia:!!filename,
@@ -1137,8 +1177,8 @@ await req("webhook/waha",unknownEvent("media","","arquivo.jpg"),hookHeaders);
 const unknownFile=tables.documents.at(-1);
 unknownFile.received_at=new Date().toISOString();
 assert.equal(unknownFile.kind,"outro");
-assert.match(outbound.at(-1).text,/confirmar o tipo/i);
-assert.match(outbound.at(-1).text,/• documento do carro/);
+assert.match(outbound.at(-1).text,/sem identificação|último arquivo/i);
+assert.doesNotMatch(outbound.at(-1).text,/• documento do carro/,"Do not call an unclassified received CRLV missing before asking its type");
 await req("webhook/waha",unknownEvent("identify","É o CRLV"),hookHeaders);
 assert.equal(unknownFile.kind,"crlv");
 assert.equal(unknownFile.status,"received");
