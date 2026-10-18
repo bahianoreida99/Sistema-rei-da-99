@@ -893,6 +893,10 @@ async function sendDocumentProgress(
 }
 
 const BATCH_IDLE_MS = 300_000;
+async function batchModeOn(){
+  const setting=(await rows("business_settings","?key=eq.document_batch&select=value"))[0]?.value;
+  return setting?.enabled!==false;
+}
 const batchYes = (value:string) => /^(?:sim|s|pronto|prontinho|terminei|finalizei|enviei tudo|ja enviei tudo|confirmo|pode seguir|todos enviados)[.! ]*$/.test(normalizeConversation(value));
 const batchNo = (value:string) => /^(?:nao|n|ainda nao|falta|vou mandar mais|espera|aguarda)[.! ]*$/.test(normalizeConversation(value));
 function refreshedBatch(context:any,at:string) {
@@ -901,6 +905,7 @@ function refreshedBatch(context:any,at:string) {
     batch_has_uploads:true,batch_question_sent_at:null,batch_confirmed_at:null};
 }
 async function checkIdleBatches(nowMs=Date.now()) {
+  if(!(await batchModeOn()))return {asked:0};
   const leads=await rows("leads","?conversation_state=eq.collecting_documents&order=updated_at.asc&limit=150&select=*");
   let asked=0;
   for(const lead of leads) {
@@ -1411,7 +1416,7 @@ async function webhook(body: any) {
   const inBatch = lead.service !== "desconhecido" &&
     ["collecting_documents","awaiting_review"].includes(String(lead.conversation_state||"")) &&
     Boolean(lead.conversation_context?.intro_onboarding_started_at) &&
-    !lead.automation_paused && await botOn(chat);
+    !lead.automation_paused && await botOn(chat) && await batchModeOn();
   if(inBatch && p.hasMedia && uploaded && uploaded.kind!=="comprovante") {
     const next=refreshedBatch(lead.conversation_context,now);
     await update("leads",lead.id,{conversation_state:"collecting_documents",conversation_context:next});
