@@ -30,7 +30,7 @@ const tables = {
   messages: [],
   documents: [],
   lead_activity: [],
-  business_settings: [{ key: "bot", value: { enabled: true } },{key:"automation_media",value:{intro_audio:{path:"intro_audio/test.mp3",mime_type:"audio/mpeg",enabled:true}}}],
+  business_settings: [{ key: "bot", value: { enabled: true } },{key:"document_batch",value:{enabled:false}},{key:"automation_media",value:{intro_audio:{path:"intro_audio/test.mp3",mime_type:"audio/mpeg",enabled:true}}}],
 };
 let i = 0;
 const outbound = [];
@@ -150,9 +150,10 @@ const {
   send: automationSend,
   sendMedia: automationSendMedia,
   sendDocumentProgress: automationSendDocumentProgress,
+  checkIdleBatches: testIdleBatch,
   recognizeReportedOrigin: parseOrigin
 } = vm.runInNewContext(
-  js.outputText + "\n;({send,sendMedia,sendDocumentProgress,recognizeReportedOrigin});",
+  js.outputText + "\n;({send,sendMedia,sendDocumentProgress,checkIdleBatches,recognizeReportedOrigin});",
   {
     BahianoReadDocument: async () => ocrResult,
     BahianoConvertToJpeg: async () => new Uint8Array([255,216,255,1,2,3,255,217]),
