@@ -245,8 +245,7 @@ for(let i=0;i<10;i++) await caseRun(0,i,"mensagem neutra ou saudação #"+(i+1),
   assert.equal(relatedLead(chat).service,"desconhecido");
   assert.equal(relatedLead(chat).stage,"leads");
   assert.equal(outbound.length,sentBefore+1);
-  assert.match(outbound.at(-1).text,/Oi! Tudo bem|Oi, .*Tudo bem/i);
-  assert.match(outbound.at(-1).text,/Uber|CRLV/i);
+  assert.equal(outbound.at(-1).text,"Opa! Tudo bem? como posso ajudar?");
 });
 for(let i=0;i<10;i++) await caseRun(1,i,"orgânico "+organicInput[i][1]+" #"+(i+1),async()=>{
   const chat=digits(11,i),[body,service]=organicInput[i],before=outbound.length;
@@ -441,11 +440,7 @@ for(let i=0;i<1000;i++){
     assert.equal(outbound.length,base+1,"every opening must receive exactly one response");
     const firstReply=outbound.at(-1).text;
     if(scenario.greetingFirst){
-      assert.match(firstReply,/Tudo bem/i);
-      assert.match(firstReply,/Uber/);
-      assert.match(firstReply,/CRLV/);
-      if(first)assert.ok(firstReply.includes(first),"greeting should use the contact's first name");
-      else assert.doesNotMatch(firstReply,/Oi, (?:WhatsApp|Teste|Contato|5511|User)!/i);
+      assert.equal(firstReply,"Opa! Tudo bem? como posso ajudar?","greeting must have exactly the approved text");
       assert.equal(relatedLead(chat)?.service,"desconhecido","a greeting should appear in the Kanban immediately");
     } else {
       assert.ok(firstReply.length>35);
