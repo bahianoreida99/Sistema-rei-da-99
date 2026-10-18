@@ -431,8 +431,8 @@ function serviceDiscovery(lead: any, contact?: any): string {
   const name = firstName(contact?.display_name || lead?.display_name);
   return helloLine(name) + "\n\nClaro, te explico! 😊 Hoje atendemos duas situações:\n• Ajuda com conta/cadastro Uber — *R$ 350,00*\n• Serviço relacionado ao documento do carro (CRLV) — *R$ 150,00*\n\nQual delas você precisa resolver?";
 }
-function salesGreeting(contact: any): string {
-  return helloLine(firstName(contact?.display_name)) + "\n\nSeja bem-vindo ao Baiano da 99! 😊 Me conta: você quer ajuda com a conta/cadastro da Uber ou com o documento do carro (CRLV)?";
+function salesGreeting(_contact: any): string {
+  return "Opa! Tudo bem? como posso ajudar?";
 }
 function salesOpening(lead: any, contact?: any): string {
   const name = firstName(contact?.display_name || lead?.display_name);
@@ -514,7 +514,7 @@ function initial(lead: any) {
 const automationRules = [
   { id: "welcome_uber", title: "Abertura conversacional · conta Uber", trigger: "Primeiro contato identificado como cadastro Uber; pergunta se é conta nova ou existente", message: salesOpening({service:"uber"}).replace("Oi! Tudo bem? 😊","Oi{saudacao}! Tudo bem? 😊").replace("R$ 350,00","{valor}"), variables: ["nome","saudacao","valor"] },
   { id: "welcome_documento", title: "Abertura conversacional · documento do carro", trigger: "Primeiro contato identificado como CRLV; pergunta qual é a pendência", message: salesOpening({service:"documento"}).replace("Oi! Tudo bem? 😊","Oi{saudacao}! Tudo bem? 😊").replace("R$ 150,00","{valor}"), variables: ["nome","saudacao","valor"] },
-  { id: "sales_greeting", title: "Saudação natural", trigger: "Cliente inicia com oi, olá ou bom dia sem indicar o serviço", message: "Oi{saudacao}! Tudo bem? 😊 Seja bem-vindo ao Baiano da 99! Me conta: você quer ajuda com a conta/cadastro da Uber ou com o documento do carro (CRLV)?", variables: ["nome","saudacao"] },
+  { id: "sales_greeting", title: "Saudação natural", trigger: "Cliente inicia com oi, olá ou bom dia sem indicar o serviço", message: "Opa! Tudo bem? como posso ajudar?", variables: [] },
   { id: "sales_discovery", title: "Descobrir serviço e qualificar interesse", trigger: "Cliente pede informações ou pergunta preço sem dizer qual serviço", message: "Oi{saudacao}! 😊 Hoje atendemos duas situações: conta/cadastro Uber ({valor_uber}) e serviço relacionado ao CRLV ({valor_crlv}). Qual delas você precisa resolver?", variables: ["nome","saudacao","valor_uber","valor_crlv"] },
   { id: "sales_qualify_answer", title: "Resposta contextual de qualificação", trigger: "Cliente responde se é cadastro novo ou conta existente, ou descreve a pendência", message: "Entendi, {nome}! Vou considerar isso na orientação. Quer seguir com o atendimento? Se estiver de acordo, diga pode seguir e eu te passo a lista de documentos.", variables: ["nome","valor"] },
   { id: "sales_offer", title: "Confirmar interesse antes de pedir documentos", trigger: "Cliente já esclareceu o que precisa; confirmar se quer seguir", message: "Quer seguir com o atendimento? Se estiver de acordo com o valor, diga pode seguir e eu te passo a lista de documentos.", variables: ["nome","valor"] },

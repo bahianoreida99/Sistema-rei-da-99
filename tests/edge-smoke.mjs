@@ -339,7 +339,7 @@ assert.equal(r.first,true);
 assert.equal(leadForChat(neutralChat).stage,"leads");
 assert.equal(leadForChat(neutralChat).source,"whatsapp");
 assert.equal(outbound.length,priorOut+1);
-assert.match(outbound.at(-1).text,/Uber|CRLV/);
+assert.equal(outbound.at(-1).text,"Opa! Tudo bem? como posso ajudar?");
 const siteChat="5511999991022@c.us";
 r=await req("webhook/waha",routedMessage("site-first",siteChat,"Oi, vim pelo site"),hookHeaders);
 assert.equal(leadForChat(siteChat).stage,"leads_campaign");
@@ -1017,12 +1017,12 @@ let configuration=await readAutomation();assert.equal(configuration.rules.length
 const sampleVariables={nome:"Carlos",saudacao:", Carlos",valor:"R$ 350,00",valor_uber:"R$ 350,00",valor_crlv:"R$ 150,00",documentos:"• CNH frente\n• CNH verso\n• documento do carro (CRLV)\n• selfie com fundo branco",faltantes:"CNH frente",documento:"RG verso"};
 const demoTemplateLead={id:"template-lead",contact_id:"template-contact",source:"demonstracao",service:"uber",display_name:sampleVariables.nome};
 for(const rule of configuration.rules){
- const message="EDITADO "+rule.id+" "+rule.variables.map(name=>"{"+name+"}").join(" ");
+ const message=("EDITADO "+rule.id+" "+rule.variables.map(name=>"{"+name+"}").join(" ")).trim();
  let saved=await req("admin/automation",{id:rule.id,message,revision:configuration.revision},{authorization:"Bearer good"});assert.equal(saved.ok,true);
  configuration=await readAutomation();assert.equal(configuration.rules.find(item=>item.id===rule.id).message,message);
  const before=outbound.length;
  await automationSend("test@demo.invalid","DEFAULT",demoTemplateLead,"template-"+rule.id,rule.id,{faltantes:sampleVariables.faltantes,documento:sampleVariables.documento});
- const expected=message.replace(/\{(\w+)\}/g,(_,key)=>sampleVariables[key]);assert.equal(tables.messages.at(-1).body,expected);assert.equal(outbound.length,before);
+ const expected=message.replace(/\{(\w+)\}/g,(_,key)=>sampleVariables[key]).trim();assert.equal(tables.messages.at(-1).body,expected);assert.equal(outbound.length,before);
  saved=await req("admin/automation",{id:rule.id,message:"BAD {token}",revision:configuration.revision},{authorization:"Bearer good"});assert.match(saved.error,/campos disponíveis/);
  saved=await req("admin/automation",{id:rule.id,message:"OK",revision:"old"},{authorization:"Bearer good"});assert.match(saved.error,/outra janela/);
  saved=await req("admin/automation",{id:rule.id,reset:true,revision:configuration.revision},{authorization:"Bearer good"});assert.equal(saved.ok,true);
