@@ -78,7 +78,7 @@ if (process.argv[1]?.endsWith("document-reader.mjs")) {
   const incident = context.identify("imagem pouco legível", "CNH 01_09_26.jpg", 42, "image_ocr");
   assert.equal(incident.kind, "cnh_sem_lado", "Arquivo CNH real deve aparecer como CNH, mesmo sem lado");
   assert.equal(incident.identification_method, "filename_or_caption");
-  assert.match(incident.identification_note, /Confirme frente ou verso/);
+  assert.match(incident.identification_note, /conferência/,"Side remains unknown but prompt is deferred to manual review");
   assert.equal(context.identify("", "foto qualquer.jpg", 42, "image_ocr").kind, "outro");
   assert.equal(context.identify("CARTEIRA NACIONAL DE HABILITACAO FRENTE Nome Registro", "", 87, "image_ocr").kind, "cnh_frente");
   assert.equal(context.identify("CARTEIRA NACIONAL DE HABILITACAO VERSO Observacoes", "", 87, "image_ocr").kind, "cnh_verso");
