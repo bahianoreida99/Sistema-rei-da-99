@@ -987,13 +987,10 @@ async function webhook(body: any) {
   // Campaign leads and Uber-related conversations keep normal handling.
   // Ongoing CRLV workflows also remain available for substantive replies and files.
   const uberContext = classify(message) === "uber" || lead?.service === "uber";
-  const ongoingCrlv = lead?.service === "documento" && (
-    classify(message) === "documento" || isExplicitConsent(message) ||
-    isSimpleYes(message) || isNegative(message) || asksDocuments(message) ||
-    asksHow(message) || asksPrice(message) || asksTiming(message) ||
-    asksGuarantee(message) || isPriceObjection(message) || Boolean(p.hasMedia) ||
-    /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.test(message)
-  );
+  const ongoingCrlv = lead?.service === "documento" &&
+    ["qualify_documento","offer_consent","collecting_documents","awaiting_review"].includes(
+      String(lead.conversation_state || "")
+    ) && !isGreetingOnly(message) && !isSmallTalkFollowup(message);
   if (spokenInLastTenDays && !fromCampaign && !uberContext && !ongoingCrlv) {
     return {lead_id:lead?.id || null,quiet_recent_contact:true};
   }
