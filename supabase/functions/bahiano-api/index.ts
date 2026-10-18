@@ -822,47 +822,68 @@ function identifyDocument(text: string, hint: string, confidence: number, method
 async function sendDocumentProgress(
   chat: string, lead: any, mid: string, confirmation: string, action = "progress",
 ) {
-  const current = await rows("documents", "?lead_id=eq." + encodeURIComponent(lead.id) + "&select=kind,status");
-  const remaining = requiredFor(lead).filter(kind => !hasDocKind(current, kind));
-  const unresolvedCnh = current.some(d => d.kind === "cnh_sem_lado" && d.status !== "rejected");
-  const missing: string[] = [];
-  if (unresolvedCnh && remaining.includes("cnh_frente") && remaining.includes("cnh_verso")) {
-    missing.push("• Confirme a CNH recebida: digital com os dois lados, apenas frente ou apenas verso.");
-    for (const kind of remaining.filter(x => x !== "cnh_frente" && x !== "cnh_verso"))
-      missing.push("• " + docs[kind]);
-  } else {
-    for (const kind of remaining) missing.push("• " + docs[kind]);
-  }
+  const current = await rows("documents", "?lead_id=eq." + encodeURIComponent(lead.id) + "&select=id,kind,status,received_at");
+  const remaining = requiredFor(lead).filter(kind => !hasDocKind(current,kind));
+  const pendingUnknown = current.filter(d => d.kind === "outro" && d.status !== "rejected");
+  const pendingCnh = current.filter(d => d.kind === "cnh_sem_lado" && d.status !== "rejected");
+  // Unclassified uploads may ALREADY be the requested CRLV/selfie/CNH.
+  // Do not tell the customer to resend those files before identifying them.
+  const pending = [...pendingUnknown,...pendingCnh].sort((a:any,b:any) =>
+    (Date.parse(b.received_at || "") || 0) - (Date.parse(a.received_at || "") || 0));
+  const pendingLatest = pending[0];
+  const unresolvedCnh = pendingCnh.length > 0 &&
+    remaining.some(kind => kind === "cnh_frente" || kind === "cnh_verso");
+  const missing = remaining.map(kind => "• " + docs[kind]);
   if (!lead.email) missing.push("• E-mail");
   const prefix = confirmation.trim() || "OK! ✅";
-  const message = missing.length
-    ? prefix + "\n\n*Para continuar, ainda faltam:*\n" +
+  const context = (await rows("leads","?id=eq."+encodeURIComponent(lead.id)+"&select=conversation_context"))[0]?.conversation_context || lead.conversation_context || {};
+  const ambiguityKey = pendingUnknown.length
+    ? "unknown:" + String(pendingUnknown.at(-1)?.id || "")
+    : unresolvedCnh ? "cnh:" + String(pendingCnh.at(-1)?.id || "") : "";
+  const askedBefore = ambiguityKey && context.last_document_clarification_key === ambiguityKey;
+  let message: string;
+  if (pendingUnknown.length || unresolvedCnh) {
+    if (askedBefore) {
+      message = prefix + "\n\nOs arquivos enviados estão registrados. Aguardo apenas a identificação que pedi; não precisa reenviá-los agora.";
+    } else if (pendingUnknown.length) {
+      message = prefix + "\n\n" + pendingUnknown.length +
+        (pendingUnknown.length === 1 ? " arquivo recebido ainda está" : " arquivos recebidos ainda estão") +
+        " sem identificação. *O último arquivo enviado é CNH, CRLV ou selfie?*" +
+        "\n\nNão precisa enviar as fotos novamente. Assim que você confirmar, atualizo o que falta.";
+    } else {
+      message = prefix + "\n\n*Recebi sua CNH, mas preciso confirmar o tipo:* é digital com frente e verso, somente frente ou somente verso?" +
+        "\n\nNão precisa reenviar a CNH agora.";
+    }
+  } else if (missing.length) {
+    message = prefix + "\n\n*Para continuar, ainda faltam:*\n" +
       missing.join("\n") +
-      "\n\nPode enviar um item por vez. Vou atualizar a lista a cada envio."
-    : prefix + "\n\n✅ *Recebemos todos os itens solicitados!* O Baiano vai conferir os documentos antes de validar e avançar o atendimento.";
-  await update("leads", lead.id, { conversation_state: missing.length ? "collecting_documents" : "awaiting_review" });
-  await send(chat, message, lead, action + ":" + mid,
-    missing.length ? "guidance_missing" : "guidance_complete",
-    { faltantes: missing.join("\n") });
+      "\n\nPode enviar um item por vez. Vou atualizar a lista a cada envio.";
+  } else {
+    message = prefix + "\n\n✅ *Recebemos todos os itens solicitados!* O Baiano vai conferir os documentos antes de validar e avançar o atendimento.";
+  }
+  // Document guidance is built from the ACTUAL uploaded files, so an editable
+  // generic template must not replace the dynamic list with stale requirements.
+  await send(chat,message,lead,action+":"+mid);
+  const nextContext = {
+    ...context,
+    ...(ambiguityKey && !askedBefore ? {last_document_clarification_key:ambiguityKey} : {})
+  };
+  await update("leads",lead.id,{
+    conversation_state:missing.length ? "collecting_documents" : "awaiting_review",
+    conversation_context:nextContext,
+  });
   if (!missing.length) {
     const audioSent = await sendMedia(chat,lead,"complete_audio","media:complete:"+lead.id+resetTestSuffix(lead));
-    const context = lead.conversation_context || {};
-    if (audioSent && !context.origin_confirmed && !context.origin_question_sent_at) {
-      // The voice message must be delivered successfully before asking.
-      // Message action_key prevents duplicate questions across webhook retries.
-      await send(chat,leadOriginQuestion,lead,"origin:question:"+lead.id);
-      const latest = (await rows("leads","?id=eq."+encodeURIComponent(lead.id)+"&select=conversation_context"))[0];
+    const latestContext = (await rows("leads","?id=eq."+encodeURIComponent(lead.id)+"&select=conversation_context"))[0]?.conversation_context || nextContext;
+    if (audioSent && !latestContext.origin_confirmed && !latestContext.origin_question_sent_at) {
+      await send(chat,leadOriginQuestion,lead,"origin:question:"+lead.id+resetTestSuffix(lead));
       await update("leads",lead.id,{
-        conversation_context:{
-          ...(latest?.conversation_context || context),
-          origin_question_sent_at:new Date().toISOString(),
-        }
+        conversation_context:{...latestContext,origin_question_sent_at:new Date().toISOString()},
       });
     }
   }
-  return { missing };
+  return {missing};
 }
-
 async function mediaUpload(p: any, lead: any, msg: any, kind: string) {
   const mime = String(p.media?.mimetype || p.media?.mimeType || "");
   const media = String(p.media?.url || "");
@@ -1285,10 +1306,10 @@ async function webhook(body: any) {
   // whose family is known but whose side remains unconfirmed.
   const reply = message.normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().trim().replace(/[.!?]+$/,"").replace(/\s+/g," ");
   const sideReply = !p.hasMedia
-    ? /^(?:(?:e|eh|essa e|esse e|o arquivo e)\s+)?(?:a\s+)?(frente|verso|atras)(?:\s+da\s+cnh)?$/.exec(reply)?.[1] || ""
+    ? /^(?:(?:e|eh|essa e|esse e|o arquivo e|o ultimo arquivo e|o ultimo e|ultimo foi)\s+)?(?:a\s+)?(frente|verso|atras)(?:\s+da\s+cnh)?$/.exec(reply)?.[1] || ""
     : "";
   const digitalReply = !p.hasMedia && /^(?:(?:e|eh|isso e|ela e|a cnh e|o arquivo e)\s+)?(?:uma\s+)?(?:cnh\s+)?(?:digital|frente e verso|os dois lados|ambos os lados|com os dois lados|completo|completa)(?:\s+(?:com\s+)?(?:frente e verso|os dois lados))?$/.test(reply);
-  const docTypeReply = !p.hasMedia && /^(?:(?:e|eh|isso e|esse e|essa e|o arquivo e|o documento e|a foto e)\s+)?(?:a\s+|o\s+)?(?:cnh(?: digital| frente| verso)?|carteira nacional de habilitacao(?: frente| verso)?|crlv|documento do carro|licenciamento|selfie|rg(?: frente| verso)?)(?: mesmo)?$/.test(reply);
+  const docTypeReply = !p.hasMedia && /^(?:(?:e|eh|isso e|esse e|essa e|o arquivo e|o documento e|a foto e|o ultimo arquivo e|o ultimo e|ultimo foi)\s+)?(?:a\s+|o\s+)?(?:cnh(?: digital| frente| verso)?|carteira nacional de habilitacao(?: frente| verso)?|crlv|documento do carro|licenciamento|selfie|rg(?: frente| verso)?)(?: mesmo)?$/.test(reply);
   const email = message.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0];
   if (email)
     lead = await update("leads", lead.id, { email: email.slice(0, 254) });
@@ -1441,11 +1462,16 @@ async function webhook(body: any) {
     const resolvedKind = digitalReply ? "cnh_completa"
       : sideReply ? (sideReply === "frente" ? "cnh_frente" : "cnh_verso")
       : proposed;
-    if (candidates.length === 1 &&
-        Date.now() - Date.parse(candidates[0].received_at || 0) < 24 * 60 * 60 * 1000 &&
-        (resolvedKind !== "cnh_sem_lado" || candidates[0].kind === "outro")) {
+    const orderedCandidates = candidates.map((item:any,index:number)=>({item,index})).sort((a:any,b:any)=>{
+      const ta=Date.parse(a.item.received_at || ""),tb=Date.parse(b.item.received_at || "");
+      return (Number.isFinite(tb)?tb:0)-(Number.isFinite(ta)?ta:0) || b.index-a.index;
+    });
+    const selected = orderedCandidates[0]?.item;
+    if (selected &&
+        (!selected.received_at || Date.now() - Date.parse(selected.received_at) < 24 * 60 * 60 * 1000) &&
+        (resolvedKind !== "cnh_sem_lado" || selected.kind === "outro")) {
       const completeByClient = resolvedKind === "cnh_completa";
-      await update("documents", candidates[0].id, {
+      await update("documents", selected.id, {
         kind: resolvedKind,
         identification_method: "message_followup",
         identification_confidence: 0,
