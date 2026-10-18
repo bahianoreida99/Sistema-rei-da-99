@@ -478,7 +478,7 @@ function contextualReply(message:string,lead:any,messageId:string):ContextualAns
   if(/(?:pago depois|paga depois|so paga depois|pagamento na entrega|boleto|cartao|aceita pix|aceitam pix|parcelas|parcela|forma de pagar|como fazer pix|como pagar|adiantamento|sinal)/.test(text)) kinds.push("payment");
   if(/(?:foto borrada|foto embacada|foto ruim|arquivo nao abre|arquivo nao carrega|nao consigo enviar|imagem ilegivel|imagem ficou ilegivel|print serve|imagem serve)/.test(text)) kinds.push("quality");
   if(/(?:atendente|falar com alguem|falar com uma pessoa|suporte humano|chamar o baiano)/.test(text)) kinds.push("support");
-  if(/(?:sem ear|cnh vencida|conta banida|conta bloqueada|conta uber.*bloquead|fora do ano|cadastro recusado|conta desativada|cnh provisoria|permissao para dirigir|requisitos da uber|aprovacao da uber)/.test(text) &&
+  if(/(?:sem ear|cnh vencida|cnh venceu|conta banida|conta bloqueada|conta uber.*bloquead|fora do ano|cadastro recusado|conta desativada|cnh provisoria|permissao para dirigir|requisitos da uber|aprovacao da uber)/.test(text) &&
       (isQuestion || /(?:minha|meu|estou|tenho|fui)/.test(text))) kinds.push("eligibility");
   if(kinds.length===0 || (!isQuestion && kinds.every(k=>k==="eligibility"))) return null;
   // One concise WhatsApp message answers at most three related questions.
