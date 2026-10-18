@@ -472,7 +472,7 @@ function contextualReply(message:string,lead:any,messageId:string):ContextualAns
   else if(asksPrice(message) || /(?:qnt|qto|qt|quanto voces cobram|quanto vcs cobram|quanto vc cobra|tem algum custo|quanto pra|quanto e|qual o investimento|valores|precos|custos|fica em quanto|preco final)/.test(text)) kinds.push("price");
   if(asksTiming(message) || /(?:hoje ainda|ate quando|pra ontem|urgente|urgencia|em minutos|em horas|tempo pra liberar|tempo de analise)/.test(text)) kinds.push("timing");
   if(asksGuarantee(message) || /(?:garantem|certeza|se nao der certo|se der errado|vai funcionar|taxa de sucesso|certeza absoluta|garantido)/.test(text)) kinds.push("guarantee");
-  if(asksDocuments(message) || /(?:precisa de rg|preciso de rg|lista de arquivos|papelada|copia da cnh|foto do crlv|precisa de selfie|manda quais|documentos necessarios)/.test(text)) kinds.push("documents");
+  if(asksDocuments(message) || /(?:precisa de rg|preciso de rg|lista de arquivos|papelada|copia da cnh|foto do crlv|precisa de selfie|manda quais|documentos sao necessarios|preciso da cnh|quero enviar documentos|documentos necessarios)/.test(text)) kinds.push("documents");
   if(/(?:sigilo|seguro|meus dados|vazamento|lgpd|usam meus dados|dados pessoais|documento e seguro|pedem senha|precisa da senha|pedem codigo|golpe|confiavel|privacidade)/.test(text)) kinds.push("security");
   if(/(?:como ta meu pedido|como anda|em que fase|status|acompanhar|alguma novidade|ja terminou|ta pronto|ja ficou pronto|andamento|atualizacao do processo)/.test(text)) kinds.push("progress");
   if(/(?:pago depois|paga depois|so paga depois|pagamento na entrega|boleto|cartao|aceita pix|aceitam pix|parcelas|parcela|forma de pagar|como fazer pix|adiantamento|sinal)/.test(text)) kinds.push("payment");
