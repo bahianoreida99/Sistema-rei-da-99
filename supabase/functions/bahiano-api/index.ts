@@ -699,6 +699,7 @@ function docType(s: string) {
   const x = s.toLowerCase();
   if (/comprovante|pix|pagamento/.test(x)) return "comprovante";
   // A caption mentioning both sides cannot prove their presence.
+  if (/cnh\s+digital|habilita[cç][aã]o\s+digital/.test(x)) return "cnh_completa";
   if (/\bcnh\b/.test(x) && /frente/.test(x) && /verso|atr[aá]s/.test(x)) return "cnh_sem_lado";
   if (/cnh/.test(x) && /verso|atr[aá]s/.test(x)) return "cnh_verso";
   if (/cnh/.test(x) && /frente/.test(x)) return "cnh_frente";
