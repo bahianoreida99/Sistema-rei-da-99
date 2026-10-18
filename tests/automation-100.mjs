@@ -30,7 +30,7 @@ const tables = {
   messages: [],
   documents: [],
   lead_activity: [],
-  business_settings: [{ key: "bot", value: { enabled: true } }],
+  business_settings: [{ key: "bot", value: { enabled: true } },{key:"automation_media",value:{intro_audio:{path:"intro_audio/test.mp3",mime_type:"audio/mpeg",enabled:true}}}],
 };
 let i = 0;
 const outbound = [];
@@ -79,6 +79,11 @@ async function fetchMock(input, init = {}) {
       whatsappState = action === "stop" ? "STOPPED" : "STARTING";
       return fakeJson({ name: "default", status: whatsappState });
     }
+    if(u.pathname==="/api/sendVoice"||u.pathname==="/api/sendImage"){
+      if(failSend)return fakeJson({error:"unavailable"},503);
+      const msg=JSON.parse(init.body);outbound.push({...msg,mediaEndpoint:u.pathname});
+      return fakeJson({id:"media-"+outbound.length});
+    }
     if (u.pathname === "/api/sendText") {
       if (failSend) return fakeJson({ error: "unavailable" }, 503);
       const msg = JSON.parse(init.body);
@@ -95,6 +100,8 @@ async function fetchMock(input, init = {}) {
     return init.headers?.Authorization === "Bearer good"
       ? fakeJson(authUser)
       : fakeJson({ error: "nope" }, 401);
+  if(u.pathname.startsWith("/storage/v1/object/authenticated/bahiano-automacao/"))
+    return new Response(new Uint8Array([73,68,51,3,0,0,0,0,0,0,0,1]),{status:200,headers:{"content-type":"audio/mpeg"}});
   if (u.pathname.startsWith("/storage/v1/object/"))
     return fakeJson({ Key: "test" });
   if (u.pathname === "/rest/v1/rpc/bahiano_claim_event") {
@@ -159,6 +166,7 @@ const automationSend = vm.runInNewContext(
     RegExp,
     encodeURIComponent,
     decodeURIComponent,
+    btoa,
   },
   { timeout: 5000 },
 );
