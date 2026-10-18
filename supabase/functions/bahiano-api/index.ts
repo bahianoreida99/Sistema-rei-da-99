@@ -153,7 +153,7 @@ async function send(
     const settings = (await rows("business_settings", "?key=eq.automation_messages&select=value"))[0]?.value || {};
     const template = settings[templateId];
     if (typeof template === "string" && template.trim()) {
-      const values = { nome: firstName(lead.display_name) || "cliente", valor: lead.service === "documento" ? "R$ 150,00" : "R$ 350,00", documentos: requiredFor(lead).map(kind => "• " + docs[kind]).join("\n"), ...variables };
+      const values = { nome: firstName(lead.display_name) || "cliente", saudacao: firstName(lead.display_name) ? ", " + firstName(lead.display_name) : "", valor: lead.service === "documento" ? "R$ 150,00" : "R$ 350,00", valor_uber: "R$ 350,00", valor_crlv: "R$ 150,00", documentos: requiredFor(lead).map(kind => "• " + docs[kind]).join("\n"), ...variables };
       message = template.replace(/\{(\w+)\}/g, (match: string, key: string) => values[key as keyof typeof values] ?? match);
     }
   }
@@ -376,10 +376,10 @@ function initial(lead: any) {
     )}\n📱 Número de telefone\n📧 E-mail\n\n*Se quiser fazer o serviço agora e estiver de acordo com o valor, envie os documentos solicitados.*\n\nVamos acompanhar seu atendimento até a conclusão!`;
 }
 const automationRules = [
-  { id: "welcome_uber", title: "Abertura conversacional · conta Uber", trigger: "Primeiro contato identificado como cadastro Uber; pergunta se é conta nova ou existente", message: salesOpening({service:"uber"}).replace("R$ 350,00","{valor}"), variables: ["nome","valor"] },
-  { id: "welcome_documento", title: "Abertura conversacional · documento do carro", trigger: "Primeiro contato identificado como CRLV; pergunta qual é a pendência", message: salesOpening({service:"documento"}).replace("R$ 150,00","{valor}"), variables: ["nome","valor"] },
-  { id: "sales_greeting", title: "Saudação natural", trigger: "Cliente inicia com oi, olá ou bom dia sem indicar o serviço", message: "Oi, {nome}! Tudo bem? 😊 Seja bem-vindo ao Baiano da 99! Me conta: você quer ajuda com a conta/cadastro da Uber ou com o documento do carro (CRLV)?", variables: ["nome"] },
-  { id: "sales_discovery", title: "Descobrir serviço e qualificar interesse", trigger: "Cliente pede informações ou pergunta preço sem dizer qual serviço", message: "Hoje atendemos duas situações: conta/cadastro Uber ({valor_uber}) e serviço relacionado ao CRLV ({valor_crlv}). Qual delas você precisa resolver?", variables: ["nome","valor_uber","valor_crlv"] },
+  { id: "welcome_uber", title: "Abertura conversacional · conta Uber", trigger: "Primeiro contato identificado como cadastro Uber; pergunta se é conta nova ou existente", message: salesOpening({service:"uber"}).replace("Oi! Tudo bem? 😊","Oi{saudacao}! Tudo bem? 😊").replace("R$ 350,00","{valor}"), variables: ["nome","saudacao","valor"] },
+  { id: "welcome_documento", title: "Abertura conversacional · documento do carro", trigger: "Primeiro contato identificado como CRLV; pergunta qual é a pendência", message: salesOpening({service:"documento"}).replace("Oi! Tudo bem? 😊","Oi{saudacao}! Tudo bem? 😊").replace("R$ 150,00","{valor}"), variables: ["nome","saudacao","valor"] },
+  { id: "sales_greeting", title: "Saudação natural", trigger: "Cliente inicia com oi, olá ou bom dia sem indicar o serviço", message: "Oi{saudacao}! Tudo bem? 😊 Seja bem-vindo ao Baiano da 99! Me conta: você quer ajuda com a conta/cadastro da Uber ou com o documento do carro (CRLV)?", variables: ["nome","saudacao"] },
+  { id: "sales_discovery", title: "Descobrir serviço e qualificar interesse", trigger: "Cliente pede informações ou pergunta preço sem dizer qual serviço", message: "Oi{saudacao}! 😊 Hoje atendemos duas situações: conta/cadastro Uber ({valor_uber}) e serviço relacionado ao CRLV ({valor_crlv}). Qual delas você precisa resolver?", variables: ["nome","saudacao","valor_uber","valor_crlv"] },
   { id: "sales_qualify_answer", title: "Resposta contextual de qualificação", trigger: "Cliente responde se é cadastro novo ou conta existente, ou descreve a pendência", message: "Entendi, {nome}! Vou considerar isso na orientação. Quer seguir com o atendimento? Se estiver de acordo, diga pode seguir e eu te passo a lista de documentos.", variables: ["nome","valor"] },
   { id: "sales_offer", title: "Confirmar interesse antes de pedir documentos", trigger: "Cliente já esclareceu o que precisa; confirmar se quer seguir", message: "Quer seguir com o atendimento? Se estiver de acordo com o valor, diga pode seguir e eu te passo a lista de documentos.", variables: ["nome","valor"] },
   { id: "sales_documents", title: "Solicitar documentos após interesse confirmado", trigger: "Cliente pede a lista ou confirma que quer seguir", message: "Perfeito, {nome}! Envie os documentos solicitados, um por vez. Vou confirmar cada recebimento e atualizar somente o que ainda faltar.", variables: ["nome","documentos"] },
@@ -724,11 +724,12 @@ async function webhook(body: any) {
   let contact = (
     await rows("contacts", `?chat_id=eq.${encodeURIComponent(chat)}&select=*`)
   )[0];
+  const incomingDisplayName = cleanDisplayName(p.notifyName || p._data?.pushName || p._data?.notifyName || "");
   if (!contact)
     contact = await insert("contacts", {
       chat_id: chat,
       phone: chat.split("@")[0],
-      display_name: String(p.notifyName || "").slice(0, 90) || null,
+      display_name: incomingDisplayName || null,
       classification: "unknown",
     });
   if (!contact)
@@ -736,8 +737,34 @@ async function webhook(body: any) {
       await rows("contacts", `?chat_id=eq.${encodeURIComponent(chat)}&select=*`)
     )[0];
   if (!contact) throw Error("Contato não disponível");
+  if (incomingDisplayName && (firstName(incomingDisplayName) || !contact.display_name) && incomingDisplayName !== contact.display_name) {
+    const refreshed = await update("contacts", contact.id, { display_name: incomingDisplayName });
+    contact = refreshed || { ...contact, display_name: incomingDisplayName };
+  }
   const message = String(p.body || "").slice(0, 3500);
   let lead = (await rows("leads", `?contact_id=eq.${contact.id}&select=*`))[0];
+  let serviceResolvedNow = false;
+  if (lead && incomingDisplayName && firstName(incomingDisplayName) && lead.display_name !== incomingDisplayName) {
+    const refreshedLead = await update("leads", lead.id, { display_name: incomingDisplayName });
+    lead = refreshedLead || { ...lead, display_name: incomingDisplayName };
+  }
+  if (lead && lead.service === "desconhecido") {
+    const resolved = classify(message);
+    if (resolved !== "desconhecido") {
+      const nextState = resolved === "uber" ? "qualify_uber" : "qualify_documento";
+      const refreshedLead = await update("leads", lead.id, {
+        service: resolved,
+        price_cents: resolved === "uber" ? 35000 : 15000,
+        issue: issue(message) || lead.issue || null,
+        conversation_state: nextState,
+        display_name: contact.display_name || lead.display_name,
+      });
+      lead = refreshedLead || { ...lead, service: resolved, price_cents: resolved === "uber" ? 35000 : 15000, conversation_state: nextState };
+      serviceResolvedNow = true;
+      await update("contacts", contact.id, { classification: "lead" });
+      contact.classification = "lead";
+    }
+  }
   if (
     !lead &&
     contact.classification !== "personal" &&
@@ -758,6 +785,8 @@ async function webhook(body: any) {
       source: fromCampaign ? "site" : "whatsapp",
       campaign_code: c,
       stage: fromCampaign ? "leads_campaign" : "leads",
+      conversation_state: svc === "uber" ? "qualify_uber" : svc === "documento" ? "qualify_documento" : "discover_service",
+      conversation_context: {},
     });
     if (!lead)
       lead = (await rows("leads", `?contact_id=eq.${contact.id}&select=*`))[0];
@@ -783,7 +812,28 @@ async function webhook(body: any) {
     last_message_at: new Date().toISOString(),
   });
   if (contact.classification === "personal") return { classified: "personal" };
-  if (!lead) return { classified: "unknown" };
+  if (!lead) {
+    if (contact.manual_override || !(await botOn(chat))) return { classified: "unknown" };
+    const outboundHistory = await rows("messages", "?contact_id=eq." + encodeURIComponent(contact.id) + "&direction=eq.outgoing&select=action_key,body,received_at");
+    const hasGreeting = outboundHistory.some((item: any) => String(item.action_key || "").startsWith("sales:greeting:"));
+    const pseudoLead = { id: null, contact_id: contact.id, display_name: contact.display_name, phone: contact.phone, service: "desconhecido", source: "whatsapp", price_cents: 0 };
+    if (isGreetingOnly(message) && !hasGreeting) {
+      await send(chat, salesGreeting(contact), pseudoLead, "sales:greeting:" + contact.id, "sales_greeting", { nome: firstName(contact.display_name) || "", saudacao: firstName(contact.display_name) ? ", " + firstName(contact.display_name) : "" });
+      return { classified: "unknown", greeted: true };
+    }
+    if (hasGreeting && (isSmallTalkFollowup(message) || /^(?:e voce|e vc|tudo bem por aqui)$/.test(normalizeConversation(message)))) {
+      await send(chat, "Tudo certo por aqui, obrigado por perguntar! 😊 Me conta: você precisa de ajuda com conta/cadastro Uber ou com o documento do carro (CRLV)?", pseudoLead, "sales:smalltalk:" + mid, "sales_smalltalk", { nome: firstName(contact.display_name) || "" });
+      return { classified: "unknown", greeted: true };
+    }
+    if (isCuriosity(message) || p.hasMedia) {
+      const text = p.hasMedia
+        ? "Vi que você enviou um arquivo. Para eu associá-lo corretamente, primeiro me diga se o atendimento é sobre conta/cadastro Uber ou documento do carro (CRLV).\n\n" + serviceDiscovery(pseudoLead, contact)
+        : serviceDiscovery(pseudoLead, contact);
+      await send(chat, text, pseudoLead, "sales:discovery:" + mid, "sales_discovery", { nome: firstName(contact.display_name) || "", saudacao: firstName(contact.display_name) ? ", " + firstName(contact.display_name) : "", valor_uber: "R$ 350,00", valor_crlv: "R$ 150,00" });
+      return { classified: "unknown", discovery: true };
+    }
+    return { classified: "unknown" };
+  }
   const now = new Date().toISOString();
   const proposed = docType(message);
   // A reply such as "frente" refers only to one recently received CNH
@@ -823,12 +873,33 @@ async function webhook(body: any) {
   if (!lead.welcome_sent_at) {
     if (
       !lead.automation_paused &&
-      lead.service !== "desconhecido" &&
       ["leads", "leads_campaign"].includes(lead.stage) &&
       (await botOn(chat))
     ) {
-      await send(chat, initial(lead), lead, "welcome:" + lead.id,lead.service === "documento" ? "welcome_documento" : "welcome_uber");
-      await update("leads", lead.id, { welcome_sent_at: now });
+      let state = "discover_service";
+      let opening = serviceDiscovery(lead, contact);
+      let template = "sales_discovery";
+      if (lead.service !== "desconhecido") {
+        if (asksDocuments(message)) {
+          state = "collecting_documents";
+          opening = documentChecklist(lead, contact);
+          template = "sales_documents";
+        } else {
+          state = lead.service === "documento" ? "qualify_documento" : "qualify_uber";
+          opening = salesOpening(lead, contact);
+          template = lead.service === "documento" ? "welcome_documento" : "welcome_uber";
+        }
+      }
+      await send(chat, opening, lead, "welcome:" + lead.id, template, {
+        nome: firstName(contact.display_name || lead.display_name) || "",
+        saudacao: firstName(contact.display_name || lead.display_name) ? ", " + firstName(contact.display_name || lead.display_name) : "",
+        valor: lead.service === "documento" ? "R$ 150,00" : "R$ 350,00",
+        valor_uber: "R$ 350,00",
+        valor_crlv: "R$ 150,00",
+        documentos: requiredFor(lead).map((kind) => "• " + docs[kind]).join("\n"),
+      });
+      const updatedLead = await update("leads", lead.id, { welcome_sent_at: now, conversation_state: state });
+      lead = updatedLead || { ...lead, welcome_sent_at: now, conversation_state: state };
     }
     return { lead_id: lead.id, stage: lead.stage, first: true };
   }
@@ -842,6 +913,14 @@ async function webhook(body: any) {
       first_reply_at: now,
       stage: "conversando",
     });
+  }
+  if (serviceResolvedNow && !lead.automation_paused && await botOn(chat)) {
+    const state = lead.service === "documento" ? "qualify_documento" : "qualify_uber";
+    await send(chat, salesOpening(lead, contact), lead, "sales:resolved:" + mid,
+      lead.service === "documento" ? "welcome_documento" : "welcome_uber",
+      { nome: firstName(contact.display_name || lead.display_name) || "", saudacao: firstName(contact.display_name || lead.display_name) ? ", " + firstName(contact.display_name || lead.display_name) : "", valor: lead.service === "documento" ? "R$ 150,00" : "R$ 350,00" });
+    await update("leads", lead.id, { conversation_state: state, welcome_sent_at: lead.welcome_sent_at || now });
+    return { lead_id: lead.id, stage: lead.stage, service_resolved: true };
   }
   if (
     lead.automation_paused ||
