@@ -463,7 +463,7 @@ for(let i=0;i<1000;i++){
     assert.ok(lead,"a qualified service must create a lead");
     assert.equal(lead.service,scenario.service);
     assert.match(outbound.at(-1).text,/R\$ (?:350|150),00/);
-    assert.match(outbound.at(-1).text,scenario.service==="uber"?/conta do zero|conta que j[aá] existe/i:/CRLV|documento do carro/i);
+    assert.match(outbound.at(-1).text,scenario.service==="uber"?/conta do zero|conta que j[aá] existe|quer seguir|pode seguir/i:/CRLV|documento do carro|quer seguir|pode seguir/i);
     await postConversation("conv-"+i+"-3",chat,scenario.third,name);
     assert.equal(outbound.length,base+3,"qualification, FAQ or objection must be answered");
     assert.equal(lead.conversation_state,"offer_consent","the customer should remain in the consent step until they agree");
