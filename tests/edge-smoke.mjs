@@ -424,6 +424,38 @@ assert.equal(leadForChat(upgradeChat).source,"site");
 assert.equal(leadForChat(upgradeChat).stage,"leads_campaign","campaign is attributed before commercial service is identified");
 console.log("PASS: first-contact routing, WAHA app ignored as source, Meta referral, site attribution, 10-day generic silence and Uber exception.");
 
+// Retesting from the same number after an administrator reset must ignore
+// only the pre-reset 10-day suppression and use fresh media action keys.
+const resetChat="5511999912340@c.us";
+const resetContact={
+ id:"00000000-0000-4000-8000-000000001234",chat_id:resetChat,
+ phone:resetChat.split("@")[0],classification:"lead",manual_override:false,
+ last_message_at:new Date(Date.now()-3600000).toISOString()
+};
+const resetDate=new Date().toISOString();
+const resetLead={
+ id:"00000000-0000-4000-8000-000000001235",
+ contact_id:resetContact.id,source:"whatsapp",stage:"leads",
+ service:"desconhecido",conversation_state:"discover_service",price_cents:0,
+ conversation_context:{test_reset_at:resetDate,kanban_archived_at:resetDate},
+ automation_paused:false,welcome_sent_at:null,first_reply_at:null
+};
+tables.contacts.push(resetContact);tables.leads.push(resetLead);
+const previousResetOut=outbound.length;
+const firstReset=await req("webhook/waha",routedMessage("reset-first-hello",resetChat,"Oi"),hookHeaders);
+assert.equal(firstReset.generic_greeting,true);
+assert.equal(outbound.length,previousResetOut+1);
+assert.equal(outbound.at(-1).text,"Opa! Tudo bem? como posso ajudar?");
+assert.ok(!resetLead.conversation_context.kanban_archived_at,"New message reopens reset card");
+const replyReset=await req("webhook/waha",routedMessage("reset-uber",resetChat,"Quero cadastro Uber"),hookHeaders);
+assert.equal(replyReset.started_documents,true);
+assert.equal(outbound.length,previousResetOut+3);
+assert.equal(outbound.at(-2).mediaEndpoint,"/api/sendVoice");
+assert.equal(resetLead.conversation_state,"collecting_documents");
+assert.ok(outbound.some(x=>x.mediaEndpoint==="/api/sendVoice"&&x.chatId===resetChat));
+console.log("PASS: test reset bypasses stale last-contact timer; same number gets clean greeting, audio and checklist.");
+
+
 // End-to-end delivery simulation for the new multi-intent reply engine. Uses
 // real webhook processing, mock Supabase/WAHA, and 15 independent conversations.
 const faqInputs=[

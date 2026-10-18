@@ -134,16 +134,16 @@ export default function Home() {
   }, []);
   const refreshMessages = useCallback(async (id: string) => {
     if (!supabase) return;
-    const r = await supabase
-      .from("messages")
-      .select("*")
-      .eq("lead_id", id)
-      .order("received_at", { ascending: false })
-      .limit(300);
+    const current = leads.find(lead => lead.id === id);
+    const cutoff = current?.conversation_context?.test_reset_at;
+    let query = supabase.from("messages").select("*").eq("lead_id", id);
+    if (typeof cutoff === "string" && Number.isFinite(Date.parse(cutoff)))
+      query = query.gte("received_at", cutoff);
+    const r = await query.order("received_at", { ascending: false }).limit(300);
     if (r.error) setNotice("Não foi possível atualizar a conversa. Tente novamente.");
     if (!r.error && selectedRef.current === id)
       setMessages([...(r.data || [])].reverse());
-  }, []);
+  }, [leads]);
   useEffect(() => {
     let mounted = true;
     const init = async () => {
