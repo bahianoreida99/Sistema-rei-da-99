@@ -229,10 +229,20 @@ function createMediaBridge(deps:any) {
     if(!download.ok) throw Error("Mídia não disponível: "+download.status);
     const bytes=new Uint8Array(await download.arrayBuffer());
     if(!bytes.length || bytes.length>5*1024*1024) throw Error("Tamanho de mídia inválido");
+    let outboundBytes=bytes, outboundMime=mime, outboundName=path.split("/").pop()||"arquivo";
+    if (!voice && mime!=="image/jpeg") {
+      const converter=(globalThis as any).BahianoConvertToJpeg;
+      if (typeof converter!=="function") throw Error("Conversão de imagem indisponível");
+      outboundBytes = new Uint8Array(await converter(bytes));
+      if (outboundBytes.length<3 || outboundBytes[0]!==255 || outboundBytes[1]!==216)
+        throw Error("Falha ao converter imagem para JPEG");
+      outboundMime="image/jpeg";
+      outboundName=outboundName.replace(/\.(png|webp)$/i,".jpg");
+    }
     let raw="";
-    for(let i=0;i<bytes.length;i+=8192) raw+=String.fromCharCode(...bytes.subarray(i,i+8192));
+    for(let i=0;i<outboundBytes.length;i+=8192) raw+=String.fromCharCode(...outboundBytes.subarray(i,i+8192));
     const payload:Record<string,unknown>={
-      session:"default",chatId,file:{mimetype:mime,filename:path.split("/").pop(),data:btoa(raw)}
+      session:"default",chatId,file:{mimetype:outboundMime,filename:outboundName,data:btoa(raw)}
     };
     if(voice) payload.convert=mime==="audio/mpeg";
     if(!wahaUrl || !wahaKey) throw Error("WAHA não configurado");
@@ -246,7 +256,7 @@ function createMediaBridge(deps:any) {
       sent.id?._serialized || (sent.key?.id ? "true_"+chatId+"_"+sent.key.id : "out-"+crypto.randomUUID());
     await insert("messages",{
       lead_id:lead.id,contact_id:lead.contact_id,waha_id:id,direction:"outgoing",
-      kind:voice?"audio":"image",body:slot,media_mime:mime,action_key:actionKey
+      kind:voice?"audio":"image",body:slot,media_mime:outboundMime,action_key:actionKey
     });
     return true;
   }
