@@ -1082,6 +1082,7 @@ async function webhook(body: any) {
       await sendDocumentProgress(chat,lead,mid,answer,"price-objection");
     } else {
       await send(chat,answer + "\n\nQuer tirar alguma dúvida ou prefere pensar e retomar depois?",lead,"price-objection:"+mid,"sales_offer");
+      if (lead.service === "uber") await sendMedia(chat,lead,"proof_1","media:proof:"+lead.id);
     }
   } else if (asksPrice(message)) {
     const price = lead.service === "documento" ? "R$ 150,00" : "R$ 350,00";
