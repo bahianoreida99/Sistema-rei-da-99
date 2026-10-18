@@ -1016,7 +1016,14 @@ async function webhook(body: any) {
   // No repeat generic welcome for a person contacted in the previous 10 days.
   // Campaign leads and Uber-related conversations keep normal handling.
   // Ongoing CRLV workflows also remain available for substantive replies and files.
-  const uberContext = classify(message) === "uber" || lead?.service === "uber";
+  const genericGreeting = isGreetingOnly(message) || isSmallTalkFollowup(message);
+  const uberContext = !genericGreeting && (
+    classify(message) === "uber" ||
+    (lead?.service === "uber" && (
+      Boolean(issue(message)) ||
+      !["discover_service"].includes(String(lead.conversation_state || ""))
+    ))
+  );
   const ongoingCrlv = lead?.service === "documento" &&
     ["qualify_documento","offer_consent","collecting_documents","awaiting_review"].includes(
       String(lead.conversation_state || "")
@@ -1177,7 +1184,35 @@ async function webhook(body: any) {
     ["producao", "finalizados", "pagos"].includes(lead.stage)
   )
     return { lead_id: lead.id, stage: lead.stage, paused: true };
-  const state = String(lead.conversation_state || (lead.welcome_sent_at ? "collecting_documents" : "discover_service"));
+  let state = String(lead.conversation_state || (lead.welcome_sent_at ? "collecting_documents" : "discover_service"));
+  // An old conversation may already know the service but still be stuck in
+  // discover_service (for example after a generic "Oi"). Never ask the
+  // customer to pick Uber/CRLV again when the lead is already qualified.
+  if (state === "discover_service" && lead.service !== "desconhecido" && !genericGreeting) {
+    const statedIssue = issue(message);
+    const resolvedIssue = statedIssue || lead.issue || null;
+    const nextState = resolvedIssue ? "offer_consent"
+      : lead.service === "uber" ? "qualify_uber" : "qualify_documento";
+    const context = {
+      ...(lead.conversation_context || {}),
+      ...(statedIssue ? { reported_issue:statedIssue, last_customer_message:message.slice(0,240) } : {})
+    };
+    const refreshed = await update("leads",lead.id,{
+      conversation_state:nextState,
+      issue:resolvedIssue,
+      conversation_context:context,
+    });
+    lead = refreshed || {...lead,conversation_state:nextState,issue:resolvedIssue,conversation_context:context};
+    state = nextState;
+    // If the message already states the problem, answer it specifically.
+    // For direct questions, continue through normal FAQ/price logic below.
+    if (!asksPrice(message) && !asksHow(message) && !asksTiming(message) &&
+        !asksGuarantee(message) && !asksDocuments(message) &&
+        !isExplicitConsent(message)) {
+      await send(chat,salesOpening(lead,contact),lead,"sales:known-service:"+mid);
+      return {lead_id:lead.id,stage:lead.stage,qualified_service:lead.service,reported_issue:resolvedIssue};
+    }
+  }
   if (/falar com (?:um )?(?:atendente|pessoa|humano)|atendimento humano|falar com o baiano|quero falar com alguem/i.test(message)) {
     await update("leads", lead.id, { automation_paused: true, automation_pause_reason: "manual", conversation_state: "human_handoff" });
     await send(
