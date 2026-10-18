@@ -1331,3 +1331,75 @@ assert.equal(siteOriginLead.stage,"leads_campaign");
 console.log("PASS: completion voice precedes attribution question, five answer choices, stored self-report, site routing and question dedupe (mocked).");
 
 
+// Ten independent test-evaluate scenarios, over webhook + 5-minute timer,
+// without using a real number or disclosing any real customer's documents.
+tables.business_settings.find(x=>x.key==="document_batch").value.enabled=true;
+const batchTime=Date.now();
+const batchReports=[];
+for(let cycle=0;cycle<10;cycle++){
+  const chat="55119770"+String(cycle).padStart(5,"0")+"@c.us";
+  const service=cycle%2===0?"documento":"uber";
+  const phone=chat.split("@")[0];
+  const incoming=(name,body,filename)=>{
+    const media=Boolean(filename);
+    return {event:"message",session:"default",payload:{
+      from:chat,id:"batch-"+cycle+"-"+name,body,fromMe:false,hasMedia:media,
+      ...(media?{media:{url:"https://waha.example/api/files/fixture.png",
+        mimetype:"image/jpeg",filename}}:{})
+    }};
+  };
+  const startCount=outbound.length;
+  await req("webhook/waha",incoming("start",service==="uber"?"Quero cadastro Uber":"Quero CRLV"),hookHeaders);
+  const batchLead=leadForChat(chat);
+  assert.equal(batchLead.service,service);
+  assert.equal(outbound.length,startCount+2,"Intro must be voice then checklist.");
+  assert.equal(outbound.at(-2).mediaEndpoint,"/api/sendVoice");
+  const beforeFiles=outbound.length;
+  const sends=service==="uber"?["CNH digital.jpg","CRLV.jpg","Selfie.jpg"]:["CRLV.jpg"];
+  for(let j=0;j<sends.length;j++){
+    ocrResult={text:"",confidence:0,method:"unavailable"};
+    const r=await req("webhook/waha",incoming("file"+j,"",sends[j]),hookHeaders);
+    assert.equal(r.batch_upload_saved,true);
+    assert.equal(outbound.length,beforeFiles,"Do not respond to individual uploaded documents");
+  }
+  assert.ok(batchLead.conversation_context.batch_has_uploads);
+  if(cycle!==2){
+    const a=await req("webhook/waha",incoming("email","batch"+cycle+"@example.invalid"),hookHeaders);
+    assert.equal(a.batch_waiting,true);
+    assert.equal(outbound.length,beforeFiles,"Do not respond to email during file batch");
+  }
+  assert.equal((await testIdleBatch(Date.now()+4*60_000)).asked,0);
+  const triggered=await testIdleBatch(Date.now()+6*60_000);
+  assert.equal(triggered.asked,1,"Exactly one reminder after 5-minute inactivity");
+  assert.match(outbound.at(-1).text,/Confirma pra mim.*enviou todos/i);
+  const afterQuestion=outbound.length;
+  assert.equal((await testIdleBatch(Date.now()+7*60_000)).asked,0,"No duplicate prompt");
+  assert.equal(outbound.length,afterQuestion);
+  if(cycle===3){
+    await req("webhook/waha",incoming("no","não"),hookHeaders);
+    assert.match(outbound.at(-1).text,/Pode continuar enviando/i);
+    assert.equal(batchLead.conversation_state,"collecting_documents");
+    assert.equal((await testIdleBatch(Date.now()+4*60_000)).asked,0);
+    assert.equal((await testIdleBatch(Date.now()+6*60_000)).asked,1,"No -> next 5-minute cycle");
+  }
+  const result=await req("webhook/waha",incoming("yes",cycle%3===0?"confirmo":"sim"),hookHeaders);
+  assert.equal(result.confirmed,true);
+  assert.equal(batchLead.conversation_state,"awaiting_review");
+  if(cycle===2){
+    assert.equal(result.all_documents_received,false,"Absent email cannot trigger complete audio");
+    assert.match(outbound.at(-1).text,/Baiano vai conferir/i);
+  }else{
+    assert.equal(result.all_documents_received,true,"All requested files plus email present");
+    assert.equal(outbound.at(-2).mediaEndpoint,"/api/sendVoice");
+    assert.match(outbound.at(-1).text,/Indicação/);
+  }
+  const afterConfirm=outbound.length;
+  await req("webhook/waha",incoming("yes","sim"),hookHeaders);
+  assert.equal(outbound.length,afterConfirm,"Do not resend completion on repeated yes");
+  batchReports.push({cycle:cycle+1,service,files:sends.length,complete:result.all_documents_received});
+}
+tables.business_settings.find(x=>x.key==="document_batch").value.enabled=false;
+console.log("BATCH_10_ROUNDS "+JSON.stringify(batchReports));
+
+
+
