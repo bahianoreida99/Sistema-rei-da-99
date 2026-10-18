@@ -924,7 +924,7 @@ tables.business_settings.push({key:"automation_messages",value:{},updated_at:"20
 const readAutomation = () => handler(new Request("https://api.example/admin/automation",{headers:{authorization:"Bearer good"}})).then(r=>r.json());
 assert.equal((await handler(new Request("https://api.example/admin/automation"))).status,401);
 let configuration=await readAutomation();assert.equal(configuration.rules.length,24);
-const sampleVariables={nome:"Carlos",saudacao:", Carlos",valor:"R$ 350,00",valor_uber:"R$ 350,00",valor_crlv:"R$ 150,00",documentos:"• CNH frente\\n• CNH verso\\n• documento do carro (CRLV)\\n• selfie com fundo branco",faltantes:"CNH frente",documento:"RG verso"};
+const sampleVariables={nome:"Carlos",saudacao:", Carlos",valor:"R$ 350,00",valor_uber:"R$ 350,00",valor_crlv:"R$ 150,00",documentos:"• CNH frente\n• CNH verso\n• documento do carro (CRLV)\n• selfie com fundo branco",faltantes:"CNH frente",documento:"RG verso"};
 const demoTemplateLead={id:"template-lead",contact_id:"template-contact",source:"demonstracao",service:"uber",display_name:sampleVariables.nome};
 for(const rule of configuration.rules){
  const message="EDITADO "+rule.id+" "+rule.variables.map(name=>"{"+name+"}").join(" ");
