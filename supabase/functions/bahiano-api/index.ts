@@ -476,7 +476,7 @@ function contextualReply(message:string,lead:any,messageId:string):ContextualAns
   if(/(?:sigilo|seguro|meus dados|vazamento|lgpd|usam meus dados|dados pessoais|documento e seguro|pedem senha|precisa da senha|pedem codigo|codigo de verificacao|golpe|confiavel|privacidade)/.test(text)) kinds.push("security");
   if(/(?:como ta meu pedido|como esta meu pedido|tem novidade|como anda|em que fase|status|acompanhar|alguma novidade|ja terminou|ta pronto|ja ficou pronto|andamento|atualizacao do processo)/.test(text)) kinds.push("progress");
   if(/(?:pago depois|paga depois|so paga depois|pagamento na entrega|boleto|cartao|aceita pix|aceitam pix|parcelas|parcela|forma de pagar|como fazer pix|como pagar|adiantamento|sinal)/.test(text)) kinds.push("payment");
-  if(/(?:foto borrada|foto embacada|foto ruim|arquivo nao abre|arquivo nao carrega|nao consigo enviar|imagem ilegivel|imagem ficou ilegivel|print serve|imagem serve)/.test(text)) kinds.push("quality");
+  if(/(?:foto borrada|foto ficou borrada|foto.*borrad|foto embacada|foto ruim|arquivo nao abre|arquivo nao carrega|nao consigo enviar|imagem ilegivel|imagem ficou ilegivel|print serve|imagem serve)/.test(text)) kinds.push("quality");
   if(/(?:atendente|falar com alguem|falar com uma pessoa|suporte humano|chamar o baiano)/.test(text)) kinds.push("support");
   if(/(?:sem ear|cnh vencida|cnh venceu|conta banida|conta bloqueada|conta uber.*bloquead|fora do ano|cadastro recusado|conta desativada|cnh provisoria|permissao para dirigir|requisitos da uber|aprovacao da uber)/.test(text) &&
       (isQuestion || /(?:minha|meu|estou|tenho|fui)/.test(text))) kinds.push("eligibility");
