@@ -2,7 +2,7 @@
   "compilerOptions": {
     "target": "ES2022", "lib": ["ES2022", "DOM"], "module": "ESNext",
     "moduleResolution": "bundler", "strict": true, "noEmit": true,
-    "skipLibCheck": true, "types": []
+    "skipLibCheck": true, "allowImportingTsExtensions": true, "types": []
   },
   "include": ["supabase/functions/bahiano-api/index.ts", "backend/deno.d.ts"]
 }
