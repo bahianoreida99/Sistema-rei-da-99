@@ -668,9 +668,6 @@ export default function Home() {
           >
             <Archive size={19} /> Kanban
           </button>
-          <button className={section === "human" ? "navItem active" : "navItem"} onClick={() => {setSelected(null);setSection("human");}}>
-            <MessageCircle size={19} /> Atendimento do Baiano ({manualLeads.length})
-          </button>
           <button className={section === "automation" ? "navItem active" : "navItem"} onClick={() => setSection("automation")}><MessageCircle size={19} /> Automação</button>
         </nav>
         <div className="sidebarFoot">
