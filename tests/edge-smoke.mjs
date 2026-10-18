@@ -79,6 +79,15 @@ async function fetchMock(input, init = {}) {
       whatsappState = action === "stop" ? "STOPPED" : "STARTING";
       return fakeJson({ name: "default", status: whatsappState });
     }
+
+    if (u.pathname === "/api/sendVoice" || u.pathname === "/api/sendImage") {
+      if (failSend) return fakeJson({ error: "unavailable" }, 503);
+      const msg = JSON.parse(init.body);
+      assert.equal(msg.session, "default");
+      assert.ok(msg.file.data.length > 0, "WAHA must receive base64 bytes");
+      outbound.push({ ...msg, mediaEndpoint: u.pathname });
+      return fakeJson({ id: "media-" + outbound.length });
+    }
     if (u.pathname === "/api/sendText") {
       if (failSend) return fakeJson({ error: "unavailable" }, 503);
       const msg = JSON.parse(init.body);
@@ -95,6 +104,13 @@ async function fetchMock(input, init = {}) {
     return init.headers?.Authorization === "Bearer good"
       ? fakeJson(authUser)
       : fakeJson({ error: "nope" }, 401);
+  if (u.pathname.startsWith("/storage/v1/object/authenticated/bahiano-automacao/")) {
+    const audio=u.pathname.endsWith(".mp3");
+    return new Response(audio ? new Uint8Array([73,68,51,3,0,0,0,0,0,0,0,1]) :
+      new Uint8Array([137,80,78,71,13,10,26,10,0,0,0,0]),{
+        status:200,headers:{"content-type":audio?"audio/mpeg":"image/png"}
+      });
+  }
   if (u.pathname.startsWith("/storage/v1/object/"))
     return fakeJson({ Key: "test" });
   if (u.pathname === "/rest/v1/rpc/bahiano_claim_event") {
@@ -129,8 +145,8 @@ async function fetchMock(input, init = {}) {
   }
   throw Error("Unexpected method " + init.method);
 }
-const automationSend = vm.runInNewContext(
-  js.outputText + "\n;send;",
+const { send: automationSend, sendMedia: automationSendMedia } = vm.runInNewContext(
+  js.outputText + "\n;({send,sendMedia});",
   {
     BahianoReadDocument: async () => ocrResult,
     Deno: {
@@ -159,6 +175,7 @@ const automationSend = vm.runInNewContext(
     RegExp,
     encodeURIComponent,
     decodeURIComponent,
+    btoa,
   },
   { timeout: 5000 },
 );
@@ -941,3 +958,30 @@ for(const rule of configuration.rules){
 assert.match((await req("admin/automation",{id:"invalid",message:"bad"},{authorization:"Bearer good"})).error,/Gatilho/);
 assert.match((await req("admin/automation",{id:"price",message:" ",revision:configuration.revision},{authorization:"Bearer good"})).error,/3000/);
 console.log("PASS: all 24 automation templates save, substitute variables, persist, restore defaults, reject unknown fields/stale revisions and never send demo messages externally.");
+
+// Backend media integration: private Storage -> base64 -> WAHA voice/image -> dedupe.
+// These tests never connect to a real WhatsApp session.
+const mockLead={id:"media-test-lead",contact_id:"media-test-contact",source:"whatsapp",service:"uber"};
+tables.business_settings.push({key:"automation_media",value:{
+  intro_audio:{path:"intro_audio/intro.mp3",mime_type:"audio/mpeg",enabled:true},
+  complete_audio:{path:"complete_audio/final.mp3",mime_type:"audio/mpeg",enabled:true},
+  proof_1:{path:"proof_1/prova.png",mime_type:"image/png",enabled:true}
+}});
+let mediaBefore=outbound.length;
+assert.equal(await automationSendMedia("test@c.us",mockLead,"intro_audio","test:intro"),true);
+assert.equal(outbound.length,mediaBefore+1);
+assert.equal(outbound.at(-1).mediaEndpoint,"/api/sendVoice");
+assert.equal(outbound.at(-1).file.mimetype,"audio/mpeg");
+assert.equal(tables.messages.at(-1).kind,"audio");
+assert.equal(await automationSendMedia("test@c.us",mockLead,"intro_audio","test:intro"),true);
+assert.equal(outbound.length,mediaBefore+1,"same audio should not be sent twice");
+assert.equal(await automationSendMedia("test@c.us",mockLead,"complete_audio","test:complete"),true);
+assert.equal(outbound.at(-1).mediaEndpoint,"/api/sendVoice");
+assert.equal(await automationSendMedia("test@c.us",mockLead,"proof_1","test:proof"),true);
+assert.equal(outbound.at(-1).mediaEndpoint,"/api/sendImage");
+assert.equal(tables.messages.at(-1).kind,"image");
+assert.equal(await automationSendMedia("test@c.us",mockLead,"proof_1","test:proof"),true);
+assert.equal(outbound.length,mediaBefore+3,"proof image must not repeat");
+assert.equal((await handler(new Request("https://edge.example/admin/media"))).status,401);
+console.log("PASS: media Storage->WAHA audio+image, completion audio, base64 payload, deduplication, message recording and admin auth (mocked).");
+

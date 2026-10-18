@@ -91,10 +91,16 @@ export default function Home() {
     () => leads.filter((lead) => lead.source !== "demonstracao"),
     [leads],
   );
+  // Archive existing Kanban conversations without deleting historical records,
+  // attachments, payment confirmations or financial dashboard values.
+  const kanbanLeads = useMemo(
+    () => viewLeads.filter((lead) => !lead.conversation_context?.kanban_archived_at),
+    [viewLeads],
+  );
   const selectedRef = useRef<string | null>(null);
   const refreshGeneration = useRef(0);
   selectedRef.current = selected;
-  const active = leads.find((l) => l.id === selected) || null;
+  const active = kanbanLeads.find((l) => l.id === selected) || null;
   const refresh = useCallback(async () => {
     if (!supabase) return;
     const generation = ++refreshGeneration.current;
@@ -206,14 +212,14 @@ export default function Home() {
   }, [selected, refreshMessages]);
   const filtered = useMemo(
     () =>
-      viewLeads.filter(
+      kanbanLeads.filter(
         (l) =>
           (filter === "todos" || l.service === filter) &&
           [l.display_name, l.phone, l.issue, l.source].some((x) =>
             lower(x).includes(lower(query)),
           ),
       ),
-    [viewLeads, filter, query],
+    [kanbanLeads, filter, query],
   );
   const docsFor = (id: string) => documents.filter((d) => d.lead_id === id);
   const totals = finance(viewLeads, documentSplit, month);

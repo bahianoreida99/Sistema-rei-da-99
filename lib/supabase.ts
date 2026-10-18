@@ -39,6 +39,7 @@ export interface Lead {
   paid_at: string | null;
   created_at: string;
   documents_complete_at: string | null;
+  conversation_context?: { kanban_archived_at?: string; [key: string]: unknown } | null;
 }
 export interface Msg {
   id: string;
