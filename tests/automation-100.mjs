@@ -367,11 +367,11 @@ const conversationNames = [
   "Teste automatizado","Contato","d'Ávila","Fernanda Costa","Rafael","Luísa"
 ];
 function expectedFirstName(raw) {
-  const normalized=String(raw||"").normalize("NFD").replace(/[\\u0300-\\u036f]/g,"").toLowerCase().replace(/[^\\p{L}\\p{N}@._+-]+/gu," ").replace(/\\s+/g," ").trim();
+  const normalized=String(raw||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[^\p{L}\p{N}@._+-]+/gu," ").replace(/\s+/g," ").trim();
   const generic=new Set(["whatsapp","whatsapp user","user","unknown","unknown contact","sem nome","sem identificacao","teste","teste automatizado","teste anonimo","contato","cliente","eu","eu pessoal","atendimento"]);
-  if(!raw||generic.has(normalized)||/@|^\\+?\\d[\\d\\s()+-]*$/.test(raw))return "";
-  const token=String(raw).replace(/[^\\p{L}\\p{M}'’.-]+/gu," ").trim().split(/\\s+/)[0]?.replace(/[.]+$/,"")||"";
-  if(!/^\\p{L}[\\p{L}\\p{M}'’-]{0,23}$/u.test(token)||generic.has(token.normalize("NFD").replace(/[\\u0300-\\u036f]/g,"").toLowerCase()))return "";
+  if(!raw||generic.has(normalized)||/@|^\+?\d[\d\s()+-]*$/.test(raw))return "";
+  const token=String(raw).replace(/[^\p{L}\p{M}'’.-]+/gu," ").trim().split(/\s+/)[0]?.replace(/[.]+$/,"")||"";
+  if(!/^\p{L}[\p{L}\p{M}'’-]{0,23}$/u.test(token)||generic.has(token.normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase()))return "";
   return token.charAt(0).toLocaleUpperCase("pt-BR")+token.slice(1).toLocaleLowerCase("pt-BR");
 }
 async function postConversation(id,chat,body,name) {
@@ -397,7 +397,6 @@ for(let i=0;i<1000;i++){
     let r=await postConversation("conv-"+i+"-1",chat,scenario.first,name);
     assert.equal(outbound.length,base+1,"every conversation opening must receive exactly one response");
     const firstReply=outbound.at(-1).text;
-    if(isNaN(i))throw Error("unreachable");
     if(scenario.first==="Oi"||scenario.first==="Olá, bom dia"){
       assert.match(firstReply,/Tudo bem/i);
       assert.match(firstReply,/Uber/);
@@ -408,10 +407,10 @@ for(let i=0;i<1000;i++){
     } else {
       assert.ok(firstReply.length>35);
       if(scenario.first==="Quanto custa?"){
-        assert.match(firstReply,/R\\$ 350,00/);
-        assert.match(firstReply,/R\\$ 150,00/);
+        assert.match(firstReply,/R\$ 350,00/);
+        assert.match(firstReply,/R\$ 150,00/);
       } else {
-        assert.match(firstReply,/R\\$ (?:350|150),00/);
+        assert.match(firstReply,/R\$ (?:350|150),00/);
       }
       if(first)assert.ok(firstReply.includes(first),"opening should personalize from WhatsApp name");
     }
@@ -420,7 +419,7 @@ for(let i=0;i<1000;i++){
     const lead=relatedLead(chat);
     assert.ok(lead,"a qualified service must create a lead");
     assert.equal(lead.service,scenario.service);
-    assert.match(outbound.at(-1).text,/R\\$ (?:350|150),00/);
+    assert.match(outbound.at(-1).text,/R\$ (?:350|150),00/);
     assert.match(outbound.at(-1).text,scenario.service==="uber"?/conta do zero|conta que ja existe/i:/CRLV|documento do carro/i);
     r=await postConversation("conv-"+i+"-3",chat,scenario.third,name);
     assert.equal(outbound.length,base+3,"qualification, FAQ or objection must be answered");
