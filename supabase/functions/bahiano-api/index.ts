@@ -469,7 +469,7 @@ function contextualReply(message:string,lead:any,messageId:string):ContextualAns
   const price=lead.service==="documento"?"R$ 150,00":lead.service==="uber"?"R$ 350,00":null;
   const kinds:ReplyIntent[]=[];
   if(isPriceObjection(message) || /(?:ta puxado|salgado|absurdo esse valor|muito dinheiro|achei salgado|carissimo|caro pra mim)/.test(text)) kinds.push("objection");
-  else if(asksPrice(message) || /(?:qnt|qto|qt|quanto voces cobram|quanto vcs cobram|quanto vc cobra|tem algum custo|quanto pra|quanto e|qual o investimento|valores|precos|custos|fica em quanto|preco final)/.test(text)) kinds.push("price");
+  else if(asksPrice(message) || /(?:qnt|qto|qt|quanto voces cobram|quanto vcs cobram|quanto vc cobra|tem algum custo|quanto pra|quanto e|investimento|valores|precos|custos|fica em quanto|preco final)/.test(text)) kinds.push("price");
   if(asksTiming(message) || /(?:hoje ainda|ate quando|pra ontem|urgente|urgencia|em minutos|em horas|tempo pra liberar|tempo de analise)/.test(text)) kinds.push("timing");
   if(asksGuarantee(message) || /(?:garantem|certeza|se nao der certo|se der errado|vai funcionar|taxa de sucesso|certeza absoluta|garantido)/.test(text)) kinds.push("guarantee");
   if(asksDocuments(message) || /(?:precisa de rg|preciso de rg|lista de arquivos|papelada|copia da cnh|foto do crlv|precisa de selfie|manda quais|documentos sao necessarios|preciso da cnh|quero enviar documentos|documentos necessarios)/.test(text)) kinds.push("documents");
