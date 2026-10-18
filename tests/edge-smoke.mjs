@@ -629,13 +629,13 @@ sessionActions.length = 0;
 whatsappState = "FAILED";
 r = await (await whatsappRequest("connect")).json();
 assert.equal(r.status, "STARTING");
-assert.deepEqual(sessionActions, ["restart"]);
+assert.deepEqual(sessionActions, ["logout", "restart"]);
 sessionActions.length = 0;
 failLogout = true;
 assert.equal((await whatsappRequest("disconnect")).status, 503);
 assert.deepEqual(sessionActions, ["logout"]);
 console.log(
-  "PASS: protected WhatsApp pairing, method restrictions, no reset of QR/starting/working sessions, manual phone confirmation preserved, start stopped session, single restart after failure, logout then stop and logout failure.",
+  "PASS: protected WhatsApp pairing, method restrictions, no reset of QR/starting/working sessions, manual phone confirmation preserved, start stopped session, clear failed pairing before restart, logout then stop and logout failure.",
 );
 
 // Complete journeys for both services, including image content without captions.
