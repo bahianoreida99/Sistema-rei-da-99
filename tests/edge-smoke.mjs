@@ -444,7 +444,7 @@ for(let i=0;i<faqInputs.length;i++){
     last_message_at:new Date().toISOString()};
   const lead={id:"00000000-0000-4000-8000-"+String(8900+i).padStart(12,"0"),
     contact_id:contact.id,service:"uber",source:"whatsapp",stage:"conversando",
-    conversation_state:"offer_consent",conversation_context:{},issue:"Cadastro suspenso",
+    conversation_state:"collecting_documents",conversation_context:{intro_onboarding_started_at:new Date().toISOString()},issue:"Cadastro suspenso",
     automation_paused:false,price_cents:35000,welcome_sent_at:new Date().toISOString(),
     first_reply_at:new Date().toISOString()};
   tables.contacts.push(contact);tables.leads.push(lead);
@@ -454,7 +454,7 @@ for(let i=0;i<faqInputs.length;i++){
   assert.equal(outbound.length,start+1,"one response per incoming message "+customer);
   assert.match(outbound.at(-1).text,new RegExp(expected,"i"),customer);
   assert.doesNotMatch(outbound.at(-1).text,/Qual delas você precisa resolver|Hoje atendemos duas situações/i);
-  assert.equal(lead.conversation_state,"offer_consent","FAQ does not reset sales funnel");
+  assert.equal(lead.conversation_state,"collecting_documents","FAQ does not reset document collection");
 }
 console.log("PASS: 15 real webhook-to-response contextual FAQ, multi-question and safety paths (mocked).");
 
