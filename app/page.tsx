@@ -63,6 +63,7 @@ const baseDocs = [
 ];
 const lower = (s?: string | null) => String(s || "").toLowerCase();
 
+const RENDER_API_URL = process.env.NEXT_PUBLIC_API_URL || (process.env.NEXT_PUBLIC_API_HOSTNAME ? `https://${process.env.NEXT_PUBLIC_API_HOSTNAME}` : "");
 export default function Home() {
   const [ready, setReady] = useState(false),
     [email, setEmail] = useState(ADMIN_EMAIL),
@@ -241,7 +242,7 @@ export default function Home() {
   ) => {
     if (!supabase) throw Error("Login indisponível");
     const { data } = await supabase.auth.getSession();
-    const backend = process.env.NEXT_PUBLIC_API_URL;
+    const backend = RENDER_API_URL;
     if (!backend || !data.session) throw Error("API ou login não configurado");
     const r = await fetch(backend + "/admin/" + action, {
       method: "POST",
@@ -322,7 +323,7 @@ export default function Home() {
     try {
       const token = await supabase?.auth.getSession();
       const key = token?.data.session?.access_token;
-      const backend = process.env.NEXT_PUBLIC_API_URL;
+      const backend = RENDER_API_URL;
       if (!backend || !key) throw Error("API ainda não configurada");
       const r = await fetch(backend + "/admin/finish", {
         method: "POST",
@@ -432,7 +433,7 @@ export default function Home() {
     try {
       const { data } = await supabase.auth.getSession();
       const token = data.session?.access_token,
-        backend = process.env.NEXT_PUBLIC_API_URL;
+        backend = RENDER_API_URL;
       if (!token || !backend) throw Error("API ou login não configurado");
       const r = await fetch(backend + "/admin/production", {
         method: "POST",
@@ -524,7 +525,7 @@ export default function Home() {
     setBusy("send");
     try {
       const token = await supabase.auth.getSession();
-      const backend = process.env.NEXT_PUBLIC_API_URL;
+      const backend = RENDER_API_URL;
       if (!backend || !token.data.session?.access_token)
         throw Error("API ainda não configurada");
       const r = await fetch(backend + "/admin/send", {
@@ -551,7 +552,7 @@ export default function Home() {
     setBusy(contactId);
     try {
       const { data } = await supabase.auth.getSession();
-      const backend = process.env.NEXT_PUBLIC_API_URL;
+      const backend = RENDER_API_URL;
       if (!backend || !data.session)
         throw Error("API ou login não configurado");
       const response = await fetch(backend + "/admin/classify", {

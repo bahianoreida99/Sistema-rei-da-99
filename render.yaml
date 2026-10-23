@@ -1,0 +1,111 @@
+# Recuperacao limpa apos incidente na antiga infraestrutura.
+# Nenhum segredo privado deve ser armazenado neste repositorio.
+# Render Dashboard -> New -> Blueprint -> branch recovery/render-20261023
+# Confirme precos e proteja GitHub/Supabase antes de sincronizar.
+services:
+  - type: web
+    name: bahiano-api-render
+    runtime: node
+    region: virginia
+    plan: 1c-2g
+    branch: recovery/render-20261023
+    autoDeployTrigger: off
+    buildCommand: npm ci --no-audit --no-fund && npm run build:api
+    startCommand: node backend/server.mjs
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: SUPABASE_URL
+        value: https://mvjokrceegoycsunlgme.supabase.co
+      - key: SUPABASE_ANON_KEY
+        value: sb_publishable_y0zJw6tcjGR6eI7KFvdAeg_uJrkvhY1
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: BAHIANO_ADMIN_USER_ID
+        value: 7dc8ff0d-9f3b-4aa2-8e07-e5b24367ecad
+      - key: BAHIANO_WEBHOOK_TOKEN
+        generateValue: true
+      - key: WAHA_HOSTPORT
+        fromService:
+          name: bahiano-waha-render
+          type: pserv
+          property: hostport
+      - key: WAHA_API_KEY
+        fromService:
+          name: bahiano-waha-render
+          type: pserv
+          envVarKey: WAHA_API_KEY
+      - key: META_CONFIG_ENCRYPTION_KEY
+        generateValue: true
+
+  - type: web
+    name: bahiano-painel-render
+    runtime: node
+    region: virginia
+    plan: 0.5c-512mb
+    branch: recovery/render-20261023
+    autoDeployTrigger: off
+    buildCommand: npm ci --no-audit --no-fund && npm run build
+    startCommand: npm run start -- -p 10000 -H 0.0.0.0
+    healthCheckPath: /
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NEXT_TELEMETRY_DISABLED
+        value: "1"
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        value: https://mvjokrceegoycsunlgme.supabase.co
+      - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
+        value: sb_publishable_y0zJw6tcjGR6eI7KFvdAeg_uJrkvhY1
+      - key: NEXT_PUBLIC_ADMIN_USER_ID
+        value: 7dc8ff0d-9f3b-4aa2-8e07-e5b24367ecad
+      - key: NEXT_PUBLIC_API_HOSTNAME
+        fromService:
+          name: bahiano-api-render
+          type: web
+          envVarKey: RENDER_EXTERNAL_HOSTNAME
+
+  - type: pserv
+    name: bahiano-waha-render
+    runtime: image
+    region: virginia
+    plan: 1c-2g
+    # Pin to a reviewed image digest prior to activating the production bot.
+    image:
+      url: docker.io/devlikeapro/waha:latest
+    disk:
+      name: waha-new-session
+      mountPath: /app/.sessions
+      sizeGB: 2
+    envVars:
+      - key: PORT
+        value: 3000
+      - key: WAHA_API_KEY
+        generateValue: true
+      - key: WAHA_DASHBOARD_ENABLED
+        value: "false"
+      - key: WHATSAPP_SWAGGER_ENABLED
+        value: "false"
+      - key: WHATSAPP_DEFAULT_ENGINE
+        value: NOWEB
+      - key: WAHA_NAMESPACE
+        value: all
+      - key: WAHA_PRINT_QR
+        value: "false"
+      - key: WHATSAPP_FILES_LIFETIME
+        value: "3600"
+      - key: WHATSAPP_FILES_FOLDER
+        value: /app/.sessions/media
+      - key: WHATSAPP_HOOK_EVENTS
+        value: message,message.any,session.status
+      - key: WHATSAPP_HOOK_RETRIES_POLICY
+        value: exponential
+      - key: WHATSAPP_HOOK_RETRIES_DELAY_SECONDS
+        value: "2"
+      - key: WHATSAPP_HOOK_RETRIES_ATTEMPTS
+        value: "5"
+      # Hook URL and custom header are intentionally not set here:
+      # configure only after fresh credentials, QR and test allowlist.
